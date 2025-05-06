@@ -1,7 +1,8 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
 @app.get("/")
-def read_root():
-    return {"status": "API da FIPE está no ar"}
+async def root():
+    return JSONResponse(content={"mensagem": "API da Tabela FIPE funcionando corretamente"})
