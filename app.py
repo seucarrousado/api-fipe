@@ -17,19 +17,19 @@ def consultar_fipe(
     ano: str = Query(..., example="2020")):
     
     try:
-        # 1. Obter a marca
+        # 1. Obter a marca (busca parcial)
         marcas = requests.get(BASE_URL).json()
-        marca_id = next((m["codigo"] for m in marcas if normalize(m["nome"]) == normalize(marca)), None)
+        marca_id = next((m["codigo"] for m in marcas if normalize(marca) in normalize(m["nome"])), None)
         if not marca_id:
             raise HTTPException(status_code=404, detail="Erro na consulta: 404: Marca não encontrada.")
 
-        # 2. Obter o modelo
+        # 2. Obter o modelo (busca parcial)
         modelos = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()["modelos"]
         modelo_id = next((m["codigo"] for m in modelos if normalize(modelo) in normalize(m["nome"])), None)
         if not modelo_id:
             raise HTTPException(status_code=404, detail="Erro na consulta: 404: Modelo não encontrado.")
 
-        # 3. Obter o ano
+        # 3. Obter o ano (busca parcial)
         anos = requests.get(f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos").json()
         ano_id = next((a["codigo"] for a in anos if normalize(ano) in normalize(a["nome"])), None)
         if not ano_id:
