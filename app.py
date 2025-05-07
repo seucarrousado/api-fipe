@@ -29,3 +29,23 @@ def listar_marcas():
         return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter marcas: {str(e)}")
+
+@app.get("/modelos/{marca_id}")
+def listar_modelos(marca_id: str):
+    try:
+        url = f"{BASE_URL}/{marca_id}/modelos"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter modelos: {str(e)}")
+
+@app.get("/anos/{marca_id}/{modelo_id}")
+def listar_anos(marca_id: str, modelo_id: str):
+    try:
+        url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
