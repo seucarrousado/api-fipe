@@ -5,7 +5,7 @@ import requests
 
 app = FastAPI()
 
-# Permitir CORS para Hostinger e local
+# Permitir CORS para o domínio da Hostinger
 origins = [
     "https://slategrey-camel-778778.hostingersite.com",
     "http://localhost"
@@ -53,20 +53,8 @@ def listar_anos(marca_id: str, modelo_id: str):
 @app.get("/fipe")
 def consultar_fipe(marca: str, modelo: str, ano: str):
     try:
-        # 1. Buscar ID da marca
-        marcas = requests.get(BASE_URL).json()
-        marca_id = next((m["codigo"] for m in marcas if m["nome"].lower() == marca.lower()), None)
-        if not marca_id:
-            raise HTTPException(status_code=404, detail="Marca não encontrada")
-
-        # 2. Buscar ID do modelo
-        modelos = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()["modelos"]
-        modelo_id = next((m["codigo"] for m in modelos if modelo.lower() in m["nome"].lower()), None)
-        if not modelo_id:
-            raise HTTPException(status_code=404, detail="Modelo não encontrado")
-
-        # 3. Consultar FIPE com código do ano (ex: 2023-1)
-        url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos/{ano}"
+        # ✅ Agora os parâmetros já são códigos corretos
+        url = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
         fipe_data = requests.get(url).json()
 
         valor = fipe_data.get("Valor")
