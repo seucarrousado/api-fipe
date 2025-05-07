@@ -6,50 +6,80 @@ app = FastAPI()
 
 BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros/marcas"
 
-# Função para remover acentos e normalizar texto
 def normalize(text):
     return unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8').lower()
 
+# 1. Lista todas as marcas
+@app.get("/marcas")
+def listar_marcas():
+    return requests.get(BASE_URL).json()
+
+# 2. Lista todos os modelos de uma marca
+@app.get("/modelos")
+def listar_modelos(marca: str = Query(..., example="chevrolet")):
+    marcas = requests.get(BASE_URL).json()
+    marca_id = next(
+        (m["codigo"] for m in marcas if normalize(marca) in normalize(m["nome"])),
+        None
+    )
+    if not marca_id:
+        raise HTTPException(status_code=404, detail="Marca não encontrada.")
+    resposta = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()
+    return resposta["modelos"]
+
+# 3. Lista todos os anos disponíveis de um modelo
+@app.get("/anos")
+def listar_anos(marca: str = Query(...), modelo: str = Query(...)):
+    marcas = requests.get(BASE_URL).json()
+    marca_id = next(
+        (m["codigo"] for m in marcas if normalize(marca) in normalize(m["nome"])),
+        None
+    )
+    if not marca_id:
+        raise HTTPException(status_code=404, detail="Marca não encontrada.")
+
+    modelos = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()["modelos"]
+    modelo_id = next(
+        (m["codigo"] for m in modelos if normalize(modelo) in normalize(m["nome"])),
+        None
+    )
+    if not modelo_id:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
+
+    return requests.get(f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos").json()
+
+# 4. Consulta final com marca, modelo e ano
 @app.get("/fipe")
 def consultar_fipe(
-    marca: str = Query(..., example="chevrolet"),
-    modelo: str = Query(..., example="onix"),
-    ano: str = Query(..., example="2020")
+    marca: str = Query(...),
+    modelo: str = Query(...),
+    ano: str = Query(...)
 ):
     try:
-        # 1. Obter a marca
         marcas = requests.get(BASE_URL).json()
         marca_id = next(
             (m["codigo"] for m in marcas if normalize(marca) in normalize(m["nome"])),
             None
         )
         if not marca_id:
-            raise HTTPException(status_code=404, detail="Erro na consulta: 404: Marca não encontrada.")
+            raise HTTPException(status_code=404, detail="Marca não encontrada.")
 
-        # 2. Obter o modelo
         modelos = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()["modelos"]
         modelo_id = next(
             (m["codigo"] for m in modelos if normalize(modelo) in normalize(m["nome"])),
             None
         )
         if not modelo_id:
-            raise HTTPException(status_code=404, detail="Erro na consulta: 404: Modelo não encontrado.")
+            raise HTTPException(status_code=404, detail="Modelo não encontrado.")
 
-        # 3. Obter o ano (com log de todos os nomes disponíveis)
         anos = requests.get(f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos").json()
-
-        print(">>> Anos disponíveis para esse modelo:")
-        for a in anos:
-            print(f"- {a['nome']}")
-
         ano_id = next(
             (a["codigo"] for a in anos if normalize(ano) in normalize(a["nome"]) or a["nome"].startswith(ano)),
             None
         )
         if not ano_id:
-            raise HTTPException(status_code=404, detail="Erro na consulta: 404: Ano não encontrado.")
+            raise HTTPException(status_code=404, detail="Ano não encontrado.")
 
-        # 4. Obter valor final
         resultado = requests.get(f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos/{ano_id}").json()
         return {
             "modelo_completo": resultado.get("Modelo"),
@@ -61,4 +91,4 @@ def consultar_fipe(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro interno na consulta: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
