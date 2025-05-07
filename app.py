@@ -1,11 +1,11 @@
 # app.py
 from fastapi import FastAPI, HTTPException
-import requests
 from fastapi.middleware.cors import CORSMiddleware
+import requests
 
 app = FastAPI()
 
-# Permitir CORS para seu site na Hostinger
+# Permitir CORS para Hostinger e local
 origins = [
     "https://slategrey-camel-778778.hostingersite.com",
     "http://localhost"
@@ -51,12 +51,28 @@ def listar_anos(marca_id: str, modelo_id: str):
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
 
 @app.get("/fipe")
-def consultar_fipe(marcaId: str, modeloId: str, ano: str):
+def consultar_fipe(marca: str, modelo: str, ano: str):
     try:
-        url = f"{BASE_URL}/{marcaId}/modelos/{modeloId}/anos/{ano}"
-        response = requests.get(url)
-        response.raise_for_status()
-        dados = response.json()
-        return {"valor_fipe": dados.get("Valor", "Não encontrado")}
+        # 1. Buscar ID da marca
+        marcas = requests.get(BASE_URL).json()
+        marca_id = next((m["codigo"] for m in marcas if m["nome"].lower() == marca.lower()), None)
+        if not marca_id:
+            raise HTTPException(status_code=404, detail="Marca não encontrada")
+
+        # 2. Buscar ID do modelo
+        modelos = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()["modelos"]
+        modelo_id = next((m["codigo"] for m in modelos if modelo.lower() in m["nome"].lower()), None)
+        if not modelo_id:
+            raise HTTPException(status_code=404, detail="Modelo não encontrado")
+
+        # 3. Consultar FIPE com código do ano (ex: 2023-1)
+        url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos/{ano}"
+        fipe_data = requests.get(url).json()
+
+        valor = fipe_data.get("Valor")
+        if not valor:
+            raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
+
+        return {"valor_fipe": valor}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro na consulta FIPE: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
