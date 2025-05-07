@@ -1,60 +1,33 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Query
 import requests
-from bs4 import BeautifulSoup
 
 app = FastAPI()
 
-@app.get("/")
-def home():
-    return {"mensagem": "API de consulta FIPE ativa."}
+BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros/marcas"
 
 @app.get("/fipe")
-def consulta_fipe(
-    modelo: str = Query(...),
-    versao: str = Query(...),
-    ano: int = Query(...)
-):
-    termo_busca = f"valor fipe {modelo} {versao} {ano}"
-    url = f"https://www.google.com/search?q={termo_busca.replace(' ', '+')}"
-    
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/90.0.4430.93 Safari/537.36"
-        )
-    }
+def consultar_fipe(
+    marca: str = Query(..., example="chevrolet"),
+    modelo: str = Query(..., example="onix"),
+    ano: str = Query(..., example="2020")):
 
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        # Pega o primeiro valor em R$
-        valor = None
-        for tag in soup.find_all(string=True):
-            if "R$" in tag:
-                valor = tag.strip()
-                break
+    # 1. Obter a marca
+    marcas = requests.get(BASE_URL).json()
+    marca_id = next((m["codigo"] for m in marcas if m["nome"].lower() == marca.lower()), None)
+    if not marca_id:
+        raise HTTPException(status_code=404, detail="Marca não encontrada.")
 
-        if valor:
-            return JSONResponse(content={
-                "modelo": modelo,
-                "versao": versao,
-                "ano": ano,
-                "valor_fipe_encontrado": valor
-            })
-        else:
-            return JSONResponse(
-                status_code=404,
-                content={"erro": "Valor não encontrado. Tente ser mais específico."}
-            )
+    # 2. Obter o modelo
+    modelos = requests.get(f"{BASE_URL}/{marca_id}/modelos").json()["modelos"]
+    modelo_id = next((m["codigo"] for m in modelos if modelo.lower() in m["nome"].lower()), None)
+    if not modelo_id:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
 
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"erro": f"Erro ao buscar valor: {str(e)}"}
-        )
+    # 3. Obter o ano
+    anos = requests.get(f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos").json()
+    ano_id = next((a["codigo"] for a in anos if ano in a["nome"]), None)
+    if not
+
 
 
 
