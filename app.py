@@ -49,3 +49,14 @@ def listar_anos(marca_id: str, modelo_id: str):
         return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
+
+@app.get("/fipe")
+def consultar_fipe(marcaId: str, modeloId: str, ano: str):
+    try:
+        url = f"{BASE_URL}/{marcaId}/modelos/{modeloId}/anos/{ano}"
+        response = requests.get(url)
+        response.raise_for_status()
+        dados = response.json()
+        return {"valor_fipe": dados.get("Valor", "Não encontrado")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro na consulta FIPE: {str(e)}")
