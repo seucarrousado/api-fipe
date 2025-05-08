@@ -73,18 +73,19 @@ async def preco_pastilha(marca: str, modelo: str, ano: str):
     url = f"https://lista.mercadolivre.com.br/{termo}"
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=15)
+        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}) as client:
+            response = await client.get(url, timeout=20)
         soup = BeautifulSoup(response.text, "html.parser")
 
         precos = []
-        for tag in soup.select("span.andes-money-amount__fraction")[:10]:
-            try:
-                preco = float(tag.text.replace(".", "").replace(",", "."))
-                if preco > 20:
-                    precos.append(preco)
-            except:
-                continue
+        for tag in soup.find_all("span"):
+            texto = tag.get_text(strip=True).replace(".", "").replace(",", ".")
+            if texto.replace(".", "").isdigit():
+                valor = float(texto)
+                if 20 <= valor <= 2000:
+                    precos.append(valor)
+            if len(precos) >= 10:
+                break
 
         if len(precos) >= 3:
             media = sum(precos[:3]) / 3
