@@ -70,41 +70,41 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
 from bs4 import BeautifulSoup
 import httpx
 
-@app.get("/preco-bing")
-async def preco_bing(marca: str, modelo: str, ano: str, termo: str):
-    query = f"site:mercadolivre.com.br {termo} {marca} {modelo} {ano}".replace(" ", "+")
-    url = f"https://www.bing.com/search?q={query}"
+@app.get("/preco-ml")
+async def preco_mercado_livre(marca: str, modelo: str, ano: str, termo: str):
+    termo_busca = f"{termo} {marca} {modelo} {ano}".replace(" ", "-").lower()
+    url = f"https://lista.mercadolivre.com.br/{termo_busca}"
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     }
 
     try:
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        async with httpx.AsyncClient(headers=headers) as client:
             response = await client.get(url, timeout=20)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        resultados = []
-        for item in soup.select("li.b_algo")[:10]:
-            link_tag = item.find("a", href=True)
-            if not link_tag:
-                continue
-            link = link_tag["href"]
-            texto = item.get_text(" ", strip=True)
-            if "mercadolivre.com.br" not in link:
-                continue
-            preco_match = re.search(r"R\$ ?(\d{2,4}(?:[.,]\d{2})?)", texto)
-            if preco_match:
-                preco = float(preco_match.group(1).replace(".", "").replace(",", "."))
-                resultados.append({"preco": preco, "link": link})
-            if len(resultados) >= 3:
+        precos_links = []
+        for item in soup.select("li.ui-search-layout__item")[:10]:
+            link_tag = item.select_one("a.ui-search-item__group__element")
+            preco_tag = item.select_one("span.andes-money-amount__fraction")
+
+            if link_tag and preco_tag:
+                link = link_tag["href"].split("?")[0]
+                try:
+                    preco = float(preco_tag.text.replace(".", "").replace(",", "."))
+                    if preco > 20:
+                        precos_links.append({"preco": preco, "link": link})
+                except:
+                    continue
+            if len(precos_links) >= 3:
                 break
 
-        if not resultados:
-            return {"media": None, "resultados": [], "error": "Nenhum resultado com preço encontrado"}
+        if not precos_links:
+            return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
 
-        media = round(sum(r["preco"] for r in resultados) / len(resultados), 2)
-        return {"media": media, "resultados": resultados}
+        media = round(sum(p["preco"] for p in precos_links) / len(precos_links), 2)
+        return {"media": media, "resultados": precos_links}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
