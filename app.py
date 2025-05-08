@@ -69,36 +69,33 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 from bs4 import BeautifulSoup
 import httpx
-@app.get("/buscar-peca")
-async def buscar_peca(termo: str):
+@app.get("/preco-ml")
+def preco_ml(termo: str):
+    import requests
+
+    url = "https://api.mercadolibre.com/sites/MLB/search"
+    params = {"q": termo, "limit": 5}
+    headers = {
+        "Authorization": "Bearer APP_USR-2957500262852820-050818-fb9c8be2cac2448bce5ccfe8b250798f-2431665622"
+    }
+
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
-        url = f"https://api.mercadolibre.com/sites/MLB/search?q={termo}&limit=10"
-        response = httpx.get(url, headers=headers, timeout=15)
+        response = requests.get(url, params=params, headers=headers)
         data = response.json()
 
         resultados = []
         for item in data.get("results", []):
-            try:
-                preco = float(item["price"])
-                if preco > 20:
-                    resultados.append({
-                        "nome": item["title"],
-                        "preco": preco,
-                        "link": item["permalink"]
-                    })
-            except:
-                continue
+            resultados.append({
+                "titulo": item.get("title"),
+                "preco": item.get("price"),
+                "link": item.get("permalink")
+            })
 
-        if len(resultados) >= 3:
-            media = sum([r["preco"] for r in resultados[:3]]) / 3
-        elif resultados:
-            media = sum([r["preco"] for r in resultados]) / len(resultados)
-        else:
+        if not resultados:
             return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
 
-        return {"media": round(media, 2), "resultados": resultados[:3]}
+        media = round(sum([r["preco"] for r in resultados]) / len(resultados), 2)
+        return {"media": media, "resultados": resultados}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar peça: {str(e)}")
+        return {"media": None, "resultados": [], "error": f"Erro ao buscar preços: {str(e)}"}
