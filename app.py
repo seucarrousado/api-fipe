@@ -70,10 +70,10 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
 from bs4 import BeautifulSoup
 import httpx
 
-@app.get("/preco-google")
-async def preco_google(marca: str, modelo: str, ano: str, termo: str):
+@app.get("/preco-bing")
+async def preco_bing(marca: str, modelo: str, ano: str, termo: str):
     query = f"site:mercadolivre.com.br {termo} {marca} {modelo} {ano}".replace(" ", "+")
-    url = f"https://www.google.com/search?q={query}"
+    url = f"https://www.bing.com/search?q={query}"
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -85,15 +85,18 @@ async def preco_google(marca: str, modelo: str, ano: str, termo: str):
         soup = BeautifulSoup(response.text, "html.parser")
 
         resultados = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if href.startswith("/url?q=https://www.mercadolivre.com.br"):
-                link = href.split("/url?q=")[-1].split("&")[0]
-                texto = a.get_text(" ", strip=True)
-                preco_match = re.search(r"R\$ ?(\d{2,4}(?:[.,]\d{2})?)", texto)
-                if preco_match:
-                    preco = float(preco_match.group(1).replace(".", "").replace(",", "."))
-                    resultados.append({"preco": preco, "link": link})
+        for item in soup.select("li.b_algo")[:10]:
+            link_tag = item.find("a", href=True)
+            if not link_tag:
+                continue
+            link = link_tag["href"]
+            texto = item.get_text(" ", strip=True)
+            if "mercadolivre.com.br" not in link:
+                continue
+            preco_match = re.search(r"R\$ ?(\d{2,4}(?:[.,]\d{2})?)", texto)
+            if preco_match:
+                preco = float(preco_match.group(1).replace(".", "").replace(",", "."))
+                resultados.append({"preco": preco, "link": link})
             if len(resultados) >= 3:
                 break
 
