@@ -2,6 +2,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import requests
+import re
+import httpx
+from bs4 import BeautifulSoup
 
 app = FastAPI()
 
@@ -67,34 +70,40 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
 from bs4 import BeautifulSoup
 import httpx
 
-@app.get("/preco-pastilha")
-async def preco_pastilha(marca: str, modelo: str, ano: str):
-    termo = f"pastilha de freio {marca} {modelo} {ano}".replace(" ", "+")
-    url = f"https://lista.mercadolivre.com.br/{termo}"
+@app.get("/preco-google")
+async def preco_google(marca: str, modelo: str, ano: str, termo: str):
+    query = f"site:mercadolivre.com.br {termo} {marca} {modelo} {ano}".replace(" ", "+")
+    url = f"https://www.google.com/search?q={query}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
 
     try:
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}) as client:
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
             response = await client.get(url, timeout=20)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        precos = []
-        for tag in soup.find_all("span"):
-            texto = tag.get_text(strip=True).replace(".", "").replace(",", ".")
-            if texto.replace(".", "").isdigit():
-                valor = float(texto)
-                if 20 <= valor <= 2000:
-                    precos.append(valor)
-            if len(precos) >= 10:
+        resultados = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "mercadolivre.com.br" in href and "https://" in href:
+                match = re.search(r"https://www\.mercadolivre\.com\.br[^\s\"']+", href)
+                if match:
+                    link = match.group(0).split("&")[0]
+                    texto = a.get_text(" ", strip=True)
+                    preco_match = re.search(r"R\$ ?(\d{2,4}(?:[.,]\d{2})?)", texto)
+                    if preco_match:
+                        preco = float(preco_match.group(1).replace(".", "").replace(",", "."))
+                        resultados.append({"preco": preco, "link": link})
+            if len(resultados) >= 3:
                 break
 
-        if len(precos) >= 3:
-            media = sum(precos[:3]) / 3
-            return {"media": round(media, 2), "resultados": precos[:3]}
-        elif precos:
-            media = sum(precos) / len(precos)
-            return {"media": round(media, 2), "resultados": precos}
-        else:
-            return {"media": None, "error": "Nenhum preço encontrado."}
+        if not resultados:
+            return {"media": None, "resultados": [], "error": "Nenhum resultado com preço encontrado"}
+
+        media = round(sum(r["preco"] for r in resultados) / len(resultados), 2)
+        return {"media": media, "resultados": resultados}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar preço: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
