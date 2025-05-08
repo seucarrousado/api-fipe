@@ -85,8 +85,8 @@ async def preco_mercado_livre(marca: str, modelo: str, ano: str, termo: str):
         soup = BeautifulSoup(response.text, "html.parser")
 
         precos_links = []
-        for item in soup.select("li.ui-search-layout__item")[:10]:
-            link_tag = item.select_one("a.ui-search-item__group__element")
+        for item in soup.select("li.ui-search-layout__item, div.ui-search-result__content")[:12]:
+            link_tag = item.select_one("a.ui-search-link, a.ui-search-item__group__element")
             preco_tag = item.select_one("span.andes-money-amount__fraction")
 
             if link_tag and preco_tag:
@@ -102,6 +102,12 @@ async def preco_mercado_livre(marca: str, modelo: str, ano: str, termo: str):
 
         if not precos_links:
             return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
+
+        media = round(sum(p["preco"] for p in precos_links) / len(precos_links), 2)
+        return {"media": media, "resultados": precos_links}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
         media = round(sum(p["preco"] for p in precos_links) / len(precos_links), 2)
         return {"media": media, "resultados": precos_links}
