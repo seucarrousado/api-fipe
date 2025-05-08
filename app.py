@@ -69,43 +69,36 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 from bs4 import BeautifulSoup
 import httpx
-
-@app.get("/preco-ml")
-async def preco_mercado_livre(marca: str, modelo: str, ano: str, termo: str):
-    termo_busca = f"{termo} {marca} {modelo} {ano}".replace(" ", "-").lower()
-    url = f"https://lista.mercadolivre.com.br/{termo_busca}"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    }
-
+@app.get("/buscar-peca")
+async def buscar_peca(termo: str):
     try:
-        async with httpx.AsyncClient(headers=headers) as client:
-            response = await client.get(url, timeout=20)
-        soup = BeautifulSoup(response.text, "html.parser")
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        url = f"https://api.mercadolibre.com/sites/MLB/search?q={termo}&limit=10"
+        response = httpx.get(url, headers=headers, timeout=15)
+        data = response.json()
 
         resultados = []
-        cards = soup.select("a.ui-search-result__content, a.ui-search-link")
+        for item in data.get("results", []):
+            try:
+                preco = float(item["price"])
+                if preco > 20:
+                    resultados.append({
+                        "nome": item["title"],
+                        "preco": preco,
+                        "link": item["permalink"]
+                    })
+            except:
+                continue
 
-        for card in cards:
-            link = card.get("href", "")
-            preco_span = card.select_one("span.andes-money-amount__fraction")
-
-            if preco_span and "mercadolivre.com.br" in link:
-                try:
-                    preco = float(preco_span.text.replace(".", "").replace(",", "."))
-                    if preco > 20:
-                        resultados.append({"preco": preco, "link": link.split("?")[0]})
-                except:
-                    continue
-            if len(resultados) >= 3:
-                break
-
-        if not resultados:
+        if len(resultados) >= 3:
+            media = sum([r["preco"] for r in resultados[:3]]) / 3
+        elif resultados:
+            media = sum([r["preco"] for r in resultados]) / len(resultados)
+        else:
             return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
 
-        media = round(sum(r["preco"] for r in resultados) / len(resultados), 2)
-        return {"media": media, "resultados": resultados}
-
+        return {"media": round(media, 2), "resultados": resultados[:3]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar peça: {str(e)}")
