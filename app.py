@@ -64,3 +64,36 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         return {"valor_fipe": valor}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
+from bs4 import BeautifulSoup
+import httpx
+
+@app.get("/preco-pastilha")
+async def preco_pastilha(marca: str, modelo: str, ano: str):
+    termo = f"pastilha de freio {marca} {modelo} {ano}".replace(" ", "+")
+    url = f"https://lista.mercadolivre.com.br/{termo}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=15)
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        precos = []
+        for tag in soup.select("span.andes-money-amount__fraction")[:10]:
+            try:
+                preco = float(tag.text.replace(".", "").replace(",", "."))
+                if preco > 20:
+                    precos.append(preco)
+            except:
+                continue
+
+        if len(precos) >= 3:
+            media = sum(precos[:3]) / 3
+            return {"media": round(media, 2), "resultados": precos[:3]}
+        elif precos:
+            media = sum(precos) / len(precos)
+            return {"media": round(media, 2), "resultados": precos}
+        else:
+            return {"media": None, "error": "Nenhum preço encontrado."}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar preço: {str(e)}")
