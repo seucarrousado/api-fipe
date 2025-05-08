@@ -87,15 +87,13 @@ async def preco_google(marca: str, modelo: str, ano: str, termo: str):
         resultados = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if "mercadolivre.com.br" in href and "https://" in href:
-                match = re.search(r"https://www\.mercadolivre\.com\.br[^\s\"']+", href)
-                if match:
-                    link = match.group(0).split("&")[0]
-                    texto = a.get_text(" ", strip=True)
-                    preco_match = re.search(r"R\$ ?(\d{2,4}(?:[.,]\d{2})?)", texto)
-                    if preco_match:
-                        preco = float(preco_match.group(1).replace(".", "").replace(",", "."))
-                        resultados.append({"preco": preco, "link": link})
+            if href.startswith("/url?q=https://www.mercadolivre.com.br"):
+                link = href.split("/url?q=")[-1].split("&")[0]
+                texto = a.get_text(" ", strip=True)
+                preco_match = re.search(r"R\$ ?(\d{2,4}(?:[.,]\d{2})?)", texto)
+                if preco_match:
+                    preco = float(preco_match.group(1).replace(".", "").replace(",", "."))
+                    resultados.append({"preco": preco, "link": link})
             if len(resultados) >= 3:
                 break
 
