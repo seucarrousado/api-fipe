@@ -52,7 +52,7 @@ def listar_anos(marca_id: str, modelo_id: str):
         return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
-
+        
 @app.get("/fipe")
 def consultar_fipe(marca: str, modelo: str, ano: str):
     try:
@@ -71,12 +71,15 @@ from bs4 import BeautifulSoup
 import httpx
 @app.get("/preco-ml")
 def preco_ml(termo: str):
-    import requests
-
     url = "https://api.mercadolibre.com/sites/MLB/search"
     params = {"q": termo, "limit": 5}
+    
+    token = os.getenv("MELI_ACCESS_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Token de acesso do Mercado Livre não configurado")
+
     headers = {
-        "Authorization": "Bearer APP_USR-2957500262852820-050818-fb9c8be2cac2448bce5ccfe8b250798f-2431665622"
+        "Authorization": f"Bearer {token}"
     }
 
     try:
@@ -94,8 +97,8 @@ def preco_ml(termo: str):
         if not resultados:
             return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
 
-        media = round(sum([r["preco"] for r in resultados]) / len(resultados), 2)
+        media = sum(item["preco"] for item in resultados) / len(resultados)
         return {"media": media, "resultados": resultados}
 
     except Exception as e:
-        return {"media": None, "resultados": [], "error": f"Erro ao buscar preços: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar Mercado Livre: {str(e)}")
