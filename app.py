@@ -84,33 +84,28 @@ async def preco_mercado_livre(marca: str, modelo: str, ano: str, termo: str):
             response = await client.get(url, timeout=20)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        precos_links = []
-        for item in soup.select("li.ui-search-layout__item, div.ui-search-result__content")[:12]:
-            link_tag = item.select_one("a.ui-search-link, a.ui-search-item__group__element")
-            preco_tag = item.select_one("span.andes-money-amount__fraction")
+        resultados = []
+        cards = soup.select("a.ui-search-result__content, a.ui-search-link")
 
-            if link_tag and preco_tag:
-                link = link_tag["href"].split("?")[0]
+        for card in cards:
+            link = card.get("href", "")
+            preco_span = card.select_one("span.andes-money-amount__fraction")
+
+            if preco_span and "mercadolivre.com.br" in link:
                 try:
-                    preco = float(preco_tag.text.replace(".", "").replace(",", "."))
+                    preco = float(preco_span.text.replace(".", "").replace(",", "."))
                     if preco > 20:
-                        precos_links.append({"preco": preco, "link": link})
+                        resultados.append({"preco": preco, "link": link.split("?")[0]})
                 except:
                     continue
-            if len(precos_links) >= 3:
+            if len(resultados) >= 3:
                 break
 
-        if not precos_links:
+        if not resultados:
             return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
 
-        media = round(sum(p["preco"] for p in precos_links) / len(precos_links), 2)
-        return {"media": media, "resultados": precos_links}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-        media = round(sum(p["preco"] for p in precos_links) / len(precos_links), 2)
-        return {"media": media, "resultados": precos_links}
+        media = round(sum(r["preco"] for r in resultados) / len(resultados), 2)
+        return {"media": media, "resultados": resultados}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
