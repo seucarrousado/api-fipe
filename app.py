@@ -69,40 +69,12 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 from bs4 import BeautifulSoup
 import httpx
-from fastapi import FastAPI, HTTPException
-import os
-import requests
-
-app = FastAPI()
-
-CLIENT_ID = "2957500262852820"
-CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("ML_REFRESH_TOKEN")
-
-def renovar_token():
-    url = "https://api.mercadolibre.com/oauth/token"
-    payload = {
-        'grant_type': 'refresh_token',
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET,
-        'refresh_token': REFRESH_TOKEN
-    }
-    response = requests.post(url, data=payload)
-    if response.status_code == 200:
-        data = response.json()
-        novo_access_token = data['access_token']
-        novo_refresh_token = data['refresh_token']
-
-        # Atualiza as variáveis de ambiente para uso imediato
-        os.environ["ML_ACCESS_TOKEN"] = novo_access_token
-        os.environ["ML_REFRESH_TOKEN"] = novo_refresh_token
-
-        return novo_access_token
-    else:
-        raise HTTPException(status_code=500, detail="Erro ao renovar token do Mercado Livre")
-
 @app.get("/preco-ml")
 def preco_ml(termo: str):
+    import os
+    import requests
+    from fastapi import HTTPException
+
     url = "https://api.mercadolibre.com/sites/MLB/search"
     params = {"q": termo, "limit": 5}
 
@@ -115,14 +87,15 @@ def preco_ml(termo: str):
     try:
         response = requests.get(url, params=params, headers=headers)
 
-        # Se o token expirou, renova e tenta de novo
+        # Se o token expirou, tenta renovar e refaz a chamada
         if response.status_code == 401:
+            # Chama a função de renovação de token
             token = renovar_token()
             headers = {"Authorization": f"Bearer {token}"}
             response = requests.get(url, params=params, headers=headers)
 
         if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Erro ao consultar preços no Mercado Livre")
+            raise HTTPException(status_code=500, detail=f"Erro ao consultar preços no Mercado Livre. Código HTTP: {response.status_code}")
 
         data = response.json()
         resultados = [
