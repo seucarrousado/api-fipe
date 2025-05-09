@@ -69,6 +69,37 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 from bs4 import BeautifulSoup
 import httpx
+def renovar_token():
+    import os
+    import requests
+    from fastapi import HTTPException
+
+    CLIENT_ID = "2957500262852820"
+    CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET")
+    REFRESH_TOKEN = os.getenv("ML_REFRESH_TOKEN")
+
+    url = "https://api.mercadolibre.com/oauth/token"
+    payload = {
+        'grant_type': 'refresh_token',
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'refresh_token': REFRESH_TOKEN
+    }
+
+    response = requests.post(url, data=payload)
+
+    if response.status_code == 200:
+        data = response.json()
+        novo_access_token = data['access_token']
+        novo_refresh_token = data['refresh_token']
+
+        # Atualiza as variáveis de ambiente em tempo de execução
+        os.environ["ML_ACCESS_TOKEN"] = novo_access_token
+        os.environ["ML_REFRESH_TOKEN"] = novo_refresh_token
+
+        return novo_access_token
+    else:
+        raise HTTPException(status_code=500, detail="Erro ao renovar token do Mercado Livre")
 @app.get("/preco-ml")
 def preco_ml(termo: str):
     import os
