@@ -69,30 +69,70 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 from bs4 import BeautifulSoup
 import httpx
+from fastapi import FastAPI, HTTPException
+import os
+import requests
+
+app = FastAPI()
+
+CLIENT_ID = "2957500262852820"
+CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET")
+REFRESH_TOKEN = os.getenv("ML_REFRESH_TOKEN")
+
+def renovar_token():
+    url = "https://api.mercadolibre.com/oauth/token"
+    payload = {
+        'grant_type': 'refresh_token',
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'refresh_token': REFRESH_TOKEN
+    }
+    response = requests.post(url, data=payload)
+    if response.status_code == 200:
+        data = response.json()
+        novo_access_token = data['access_token']
+        novo_refresh_token = data['refresh_token']
+
+        # Atualiza as variáveis de ambiente para uso imediato
+        os.environ["ML_ACCESS_TOKEN"] = novo_access_token
+        os.environ["ML_REFRESH_TOKEN"] = novo_refresh_token
+
+        return novo_access_token
+    else:
+        raise HTTPException(status_code=500, detail="Erro ao renovar token do Mercado Livre")
+
 @app.get("/preco-ml")
 def preco_ml(termo: str):
     url = "https://api.mercadolibre.com/sites/MLB/search"
     params = {"q": termo, "limit": 5}
-    
-    token = os.getenv("MELI_ACCESS_TOKEN")
+
+    token = os.getenv("ML_ACCESS_TOKEN")
     if not token:
         raise HTTPException(status_code=500, detail="Token de acesso do Mercado Livre não configurado")
 
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
+    headers = {"Authorization": f"Bearer {token}"}
 
     try:
         response = requests.get(url, params=params, headers=headers)
-        data = response.json()
 
-        resultados = []
-        for item in data.get("results", []):
-            resultados.append({
+        # Se o token expirou, renova e tenta de novo
+        if response.status_code == 401:
+            token = renovar_token()
+            headers = {"Authorization": f"Bearer {token}"}
+            response = requests.get(url, params=params, headers=headers)
+
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="Erro ao consultar preços no Mercado Livre")
+
+        data = response.json()
+        resultados = [
+            {
                 "titulo": item.get("title"),
                 "preco": item.get("price"),
                 "link": item.get("permalink")
-            })
+            }
+            for item in data.get("results", [])
+        ]
 
         if not resultados:
             return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
