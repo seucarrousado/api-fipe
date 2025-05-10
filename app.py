@@ -69,80 +69,86 @@ def consultar_fipe(marca: str, modelo: str, ano: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 from bs4 import BeautifulSoup
 import httpx
-def renovar_token():
-    import os
-    import requests
-    from fastapi import HTTPException
-
-    CLIENT_ID = "2957500262852820"
-    CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET")
-    REFRESH_TOKEN = os.getenv("ML_REFRESH_TOKEN")
-
-    url = "https://api.mercadolibre.com/oauth/token"
-    payload = {
-        'grant_type': 'refresh_token',
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET,
-        'refresh_token': REFRESH_TOKEN
-    }
-
-    response = requests.post(url, data=payload)
-
-    if response.status_code == 200:
-        data = response.json()
-        novo_access_token = data['access_token']
-        novo_refresh_token = data['refresh_token']
-
-        # Atualiza as variáveis de ambiente em tempo de execução
-        os.environ["ML_ACCESS_TOKEN"] = novo_access_token
-        os.environ["ML_REFRESH_TOKEN"] = novo_refresh_token
-
-        return novo_access_token
-    else:
-        raise HTTPException(status_code=500, detail="Erro ao renovar token do Mercado Livre")
-@app.get("/preco-ml")
-def preco_ml(termo: str):
-    import os
-    import requests
-    from fastapi import HTTPException
-
-    url = "https://api.mercadolibre.com/sites/MLB/search"
-    params = {"q": termo, "limit": 5}
-
-    token = os.getenv("ML_ACCESS_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="Token de acesso do Mercado Livre não configurado")
-
-    headers = {"Authorization": f"Bearer {token}"}
-
+@app.get("/calcular")
+def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str):
     try:
-        response = requests.get(url, params=params, headers=headers)
+        # Consulta valor FIPE
+        url_fipe = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
+        fipe_data = requests.get(url_fipe).json()
 
-        # Se o token expirou, tenta renovar e refaz a chamada
-        if response.status_code == 401:
-            # Chama a função de renovação de token
-            token = renovar_token()
-            headers = {"Authorization": f"Bearer {token}"}
-            response = requests.get(url, params=params, headers=headers)
+        valor_fipe_str = fipe_data.get("Valor")
+        if not valor_fipe_str:
+            raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Erro ao consultar preços no Mercado Livre. Código HTTP: {response.status_code}")
+        # Remove R$ e converte para float
+        valor_fipe = float(re.sub(r'[^\d,]', '', valor_fipe_str).replace(',', '.'))
 
-        data = response.json()
-        resultados = [
-            {
-                "titulo": item.get("title"),
-                "preco": item.get("price"),
-                "link": item.get("permalink")
-            }
-            for item in data.get("results", [])
-        ]
+        # Processa as peças (espera uma string separada por vírgulas)
+        lista_pecas = [p.strip() for p in pecas.split(",")]
 
-        if not resultados:
-            return {"media": None, "resultados": [], "error": "Nenhum preço encontrado no Mercado Livre"}
+        relatorio, total_abatido = buscar_precos_e_gerar_relatorio(
+            marca_nome=marca,
+            modelo_nome=modelo,
+            ano_nome=ano,
+            pecas_selecionadas=lista_pecas
+        )
 
-        media = sum(item["preco"] for item in resultados) / len(resultados)
-        return {"media": media, "resultados": resultados}
+        valor_final = round(valor_fipe - total_abatido, 2)
+
+        return {
+            "valor_fipe": f"R$ {valor_fipe:.2f}",
+            "total_abatido": f"R$ {total_abatido:.2f}",
+            "valor_final": f"R$ {valor_final:.2f}",
+            "relatorio_detalhado": relatorio
+        }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao consultar Mercado Livre: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
+
+
+def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+    url_base = "https://api.mercadolibre.com/sites/MLB/search"
+    relatorio = []
+    total_abatimento = 0
+
+    for peca in pecas_selecionadas:
+        termo_busca = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
+        params = {"q": termo_busca, "limit": 5}
+
+        try:
+            response = requests.get(url_base, params=params)
+            if response.status_code != 200:
+                relatorio.append({"item": peca, "erro": "Erro na consulta"})
+                continue
+
+            data = response.json()
+            resultados = []
+
+            for item in data.get("results", []):
+                preco = item.get("price")
+                titulo = item.get("title")
+                link = item.get("permalink")
+
+                if preco and preco > 50:
+                    resultados.append({"titulo": titulo, "preco": preco, "link": link})
+
+            if not resultados:
+                relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado"})
+                continue
+
+            # Calcula o preço médio das 3 melhores opções
+            top_resultados = resultados[:3]
+            media = sum(item["preco"] for item in top_resultados) / len(top_resultados)
+            total_abatimento += media
+
+            relatorio.append({
+                "item": peca,
+                "preco_medio": round(media, 2),
+                "abatido": round(media, 2),
+                "links": [item["link"] for item in top_resultados]
+            })
+
+        except Exception as e:
+            relatorio.append({"item": peca, "erro": f"Erro: {str(e)}"})
+
+    return relatorio, total_abatimento
