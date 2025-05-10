@@ -1,14 +1,18 @@
-# app.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-import requests
-import re
+from pydantic import BaseModel, validator
+from cachetools import TTLCache
 import httpx
-from bs4 import BeautifulSoup
+import logging
+import re
 
 app = FastAPI()
 
-# Permitir CORS para o domínio da Hostinger
+# Logging Config
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("calculadora_fipe")
+
+# CORS Restrito
 origins = [
     "https://slategrey-camel-778778.hostingersite.com",
     "http://localhost"
@@ -18,79 +22,116 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
 BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros/marcas"
 
+# Cache para dados da FIPE (1 hora de validade)
+cache = TTLCache(maxsize=100, ttl=3600)
+
+
+# Validação de Parâmetros com Pydantic
+class FipeQuery(BaseModel):
+    marca: str
+    modelo: str
+    ano: str
+    pecas: str
+
+    @validator('marca', 'modelo', 'ano')
+    def check_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('Campo obrigatório não pode ser vazio.')
+        return v
+
+
 @app.get("/marcas")
-def listar_marcas():
+async def listar_marcas():
     try:
-        response = requests.get(BASE_URL)
-        response.raise_for_status()
-        return response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(BASE_URL)
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
+        logger.error(f"Erro ao obter marcas: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter marcas: {str(e)}")
 
+
 @app.get("/modelos/{marca_id}")
-def listar_modelos(marca_id: str):
+async def listar_modelos(marca_id: str):
     try:
-        url = f"{BASE_URL}/{marca_id}/modelos"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        async with httpx.AsyncClient() as client:
+            url = f"{BASE_URL}/{marca_id}/modelos"
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
+        logger.error(f"Erro ao obter modelos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter modelos: {str(e)}")
 
+
 @app.get("/anos/{marca_id}/{modelo_id}")
-def listar_anos(marca_id: str, modelo_id: str):
+async def listar_anos(marca_id: str, modelo_id: str):
     try:
-        url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        async with httpx.AsyncClient() as client:
+            url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos"
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
+        logger.error(f"Erro ao obter anos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
-        
+
+
 @app.get("/fipe")
-def consultar_fipe(marca: str, modelo: str, ano: str):
+async def consultar_fipe(marca: str, modelo: str, ano: str):
     try:
-        # ✅ Agora os parâmetros já são códigos corretos
-        url = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
-        fipe_data = requests.get(url).json()
+        cache_key = f"{marca}_{modelo}_{ano}"
+        if cache_key in cache:
+            logger.info(f"Valor FIPE recuperado do cache para {cache_key}")
+            return {"valor_fipe": cache[cache_key]}
+
+        async with httpx.AsyncClient() as client:
+            url = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
+            response = await client.get(url)
+            response.raise_for_status()
+            fipe_data = response.json()
 
         valor = fipe_data.get("Valor")
         if not valor:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
+        cache[cache_key] = valor
         return {"valor_fipe": valor}
+
     except Exception as e:
+        logger.error(f"Erro ao consultar FIPE: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
-from bs4 import BeautifulSoup
-import httpx
+
+
 @app.get("/calcular")
-def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str):
+async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
-        # Consulta valor FIPE
-        url_fipe = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
-        fipe_data = requests.get(url_fipe).json()
+        params = FipeQuery(marca=marca, modelo=modelo, ano=ano, pecas=pecas)
+
+        # Consulta FIPE
+        async with httpx.AsyncClient() as client:
+            url_fipe = f"{BASE_URL}/{params.marca}/modelos/{params.modelo}/anos/{params.ano}"
+            response = await client.get(url_fipe)
+            response.raise_for_status()
+            fipe_data = response.json()
 
         valor_fipe_str = fipe_data.get("Valor")
         if not valor_fipe_str:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
-        # Remove R$ e converte para float
         valor_fipe = float(re.sub(r'[^\d,]', '', valor_fipe_str).replace(',', '.'))
 
-        # Processa as peças (espera uma string separada por vírgulas)
-        lista_pecas = [p.strip() for p in pecas.split(",")]
-
-        relatorio, total_abatido = buscar_precos_e_gerar_relatorio(
-            marca_nome=marca,
-            modelo_nome=modelo,
-            ano_nome=ano,
-            pecas_selecionadas=lista_pecas
+        # Processa as peças
+        lista_pecas = [p.strip() for p in params.pecas.split(",") if p.strip()]
+        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
+            params.marca, params.modelo, params.ano, lista_pecas
         )
 
         valor_final = round(valor_fipe - total_abatido, 2)
@@ -103,52 +144,55 @@ def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str):
         }
 
     except Exception as e:
+        logger.error(f"Erro no cálculo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
 
 
-def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     url_base = "https://api.mercadolibre.com/sites/MLB/search"
     relatorio = []
     total_abatimento = 0
 
-    for peca in pecas_selecionadas:
-        termo_busca = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
-        params = {"q": termo_busca, "limit": 5}
+    async with httpx.AsyncClient() as client:
+        for peca in pecas_selecionadas:
+            termo_busca = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
+            params = {"q": termo_busca, "limit": 5}
 
-        try:
-            response = requests.get(url_base, params=params)
-            if response.status_code != 200:
-                relatorio.append({"item": peca, "erro": "Erro na consulta"})
-                continue
+            try:
+                response = await client.get(url_base, params=params)
+                if response.status_code != 200:
+                    relatorio.append({"item": peca, "erro": "Erro na consulta"})
+                    continue
 
-            data = response.json()
-            resultados = []
+                data = response.json()
+                resultados = []
 
-            for item in data.get("results", []):
-                preco = item.get("price")
-                titulo = item.get("title")
-                link = item.get("permalink")
+                for item in data.get("results", []):
+                    preco = item.get("price")
+                    titulo = item.get("title")
+                    link = item.get("permalink")
 
-                if preco and preco > 50:
-                    resultados.append({"titulo": titulo, "preco": preco, "link": link})
+                    if preco and preco > 50:
+                        resultados.append({"titulo": titulo, "preco": preco, "link": link})
 
-            if not resultados:
-                relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado"})
-                continue
+                if not resultados:
+                    relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado"})
+                    continue
 
-            # Calcula o preço médio das 3 melhores opções
-            top_resultados = resultados[:3]
-            media = sum(item["preco"] for item in top_resultados) / len(top_resultados)
-            total_abatimento += media
+                top_resultados = resultados[:3]
+                media = sum(item["preco"] for item in top_resultados) / len(top_resultados)
+                total_abatimento += media
 
-            relatorio.append({
-                "item": peca,
-                "preco_medio": round(media, 2),
-                "abatido": round(media, 2),
-                "links": [item["link"] for item in top_resultados]
-            })
+                relatorio.append({
+                    "item": peca,
+                    "preco_medio": round(media, 2),
+                    "abatido": round(media, 2),
+                    "links": [item["link"] for item in top_resultados]
+                })
 
-        except Exception as e:
-            relatorio.append({"item": peca, "erro": f"Erro: {str(e)}"})
+            except Exception as e:
+                logger.error(f"Erro ao buscar preço de {peca}: {e}")
+                relatorio.append({"item": peca, "erro": f"Erro: {str(e)}"})
 
     return relatorio, total_abatimento
+
