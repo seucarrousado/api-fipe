@@ -65,3 +65,9 @@ async def listar_marcas():
         raise HTTPException(status_code=500, detail="Erro interno ao processar marcas")
 
 # Resto das rotas (modelos, anos, fipe, calcular) mantidas conforme seu código original...
+    
+    except Exception as e:
+        logger.error(f"Erro crítico: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno ao processar marcas")
+
+# Resto das rotas (modelos, anos, fipe, calcular) mantidas conforme seu código original...
