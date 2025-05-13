@@ -30,7 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros/marcas"
+BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros"
 
 # Cache para dados da FIPE (1 hora de validade)
 cache = TTLCache(maxsize=100, ttl=3600)
@@ -87,7 +87,6 @@ async def listar_anos(marca_id: str, modelo_id: str):
         logger.error(f"Erro ao obter anos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
 
-
 @app.get("/fipe")
 async def consultar_fipe(marca: str, modelo: str, ano: str):
     try:
@@ -97,12 +96,12 @@ async def consultar_fipe(marca: str, modelo: str, ano: str):
             return {"valor_fipe": cache[cache_key]}
 
         async with httpx.AsyncClient() as client:
-            url = f"https://parallelum.com.br/api/v1/carros/brands/{marca}/models/{modelo}/years/{ano}"
+            url = f"{BASE_URL}/brands/{marca}/models/{modelo}/years/{ano}"
             response = await client.get(url)
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor = fipe_data.get("valor")  # Campo correto na resposta da API
+        valor = fipe_data.get("valor")
 
         if not valor:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
