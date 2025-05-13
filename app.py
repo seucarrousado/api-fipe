@@ -97,12 +97,13 @@ async def consultar_fipe(marca: str, modelo: str, ano: str):
             return {"valor_fipe": cache[cache_key]}
 
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
+            url = f"https://parallelum.com.br/api/v1/carros/brands/{marca}/models/{modelo}/years/{ano}"
             response = await client.get(url)
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor = fipe_data.get("valor")
+        valor = fipe_data.get("valor")  # Campo correto na resposta da API
+
         if not valor:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
