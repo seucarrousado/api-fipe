@@ -5,6 +5,10 @@ from cachetools import TTLCache
 import httpx
 import logging
 import re
+import os
+import openai
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = FastAPI()
 
@@ -148,51 +152,39 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
 
 
+
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
-    url_base = "https://api.mercadolibre.com/sites/MLB/search"
     relatorio = []
     total_abatimento = 0
 
-    async with httpx.AsyncClient() as client:
-        for peca in pecas_selecionadas:
-            termo_busca = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
-            params = {"q": termo_busca, "limit": 5}
+    for peca in pecas_selecionadas:
+        if not peca or peca.lower() == "não":
+            continue  # Ignora peças não selecionadas
 
-            try:
-                response = await client.get(url_base, params=params)
-                if response.status_code != 200:
-                    relatorio.append({"item": peca, "erro": "Erro na consulta"})
-                    continue
+        try:
+            ia_response = buscar_via_ia(peca, marca_nome, modelo_nome, ano_nome)
 
-                data = response.json()
-                resultados = []
+            # Extração do preço médio da resposta da IA
+            preco_match = re.search(r"Preço Médio: R\$ ([\d\.,]+)", ia_response)
+            preco_medio = float(preco_match.group(1).replace(".", "").replace(",", ".")) if preco_match else 0.0
 
-                for item in data.get("results", []):
-                    preco = item.get("price")
-                    titulo = item.get("title")
-                    link = item.get("permalink")
+            # Extração dos links
+            links = re.findall(r"https?://\S+", ia_response)
 
-                    if preco and preco > 50:
-                        resultados.append({"titulo": titulo, "preco": preco, "link": link})
+            if preco_medio == 0.0:
+                relatorio.append({"item": peca, "erro": "Preço médio não encontrado pela IA."})
+                continue
 
-                if not resultados:
-                    relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado"})
-                    continue
+            total_abatimento += preco_medio
 
-                top_resultados = resultados[:3]
-                media = sum(item["preco"] for item in top_resultados) / len(top_resultados)
-                total_abatimento += media
+            relatorio.append({
+                "item": peca,
+                "preco_medio": preco_medio,
+                "abatido": preco_medio,
+                "links": links
+            })
 
-                relatorio.append({
-                    "item": peca,
-                    "preco_medio": round(media, 2),
-                    "abatido": round(media, 2),
-                    "links": [item["link"] for item in top_resultados]
-                })
-
-            except Exception as e:
-                logger.error(f"Erro ao buscar preço de {peca}: {e}")
-                relatorio.append({"item": peca, "erro": f"Erro: {str(e)}"})
+        except Exception as e:
+            relatorio.append({"item": peca, "erro": f"Erro na resposta da IA: {str(e)}"})
 
     return relatorio, total_abatimento
-
