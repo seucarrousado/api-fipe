@@ -102,7 +102,7 @@ async def consultar_fipe(marca: str, modelo: str, ano: str):
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor = fipe_data.get("Valor")
+        valor = fipe_data.get("valor")
         if not valor:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
@@ -126,7 +126,7 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor_fipe_str = fipe_data.get("Valor")
+        valor_fipe_str = fipe_data.get("valor")
         if not valor_fipe_str:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
