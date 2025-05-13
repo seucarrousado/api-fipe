@@ -49,18 +49,17 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
-
 @app.get("/marcas")
 async def listar_marcas():
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(BASE_URL)
+            url = f"{BASE_URL}/brands"
+            response = await client.get(url)
             response.raise_for_status()
             return response.json()
     except Exception as e:
         logger.error(f"Erro ao obter marcas: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter marcas: {str(e)}")
-
 
 @app.get("/modelos/{marca_id}")
 async def listar_modelos(marca_id: str):
