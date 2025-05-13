@@ -30,11 +30,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros"
+BASE_URL = "https://parallelum.com.br/fipe/api/v1"
 
 # Cache para dados da FIPE (1 hora de validade)
 cache = TTLCache(maxsize=100, ttl=3600)
-
 
 # Validação de Parâmetros com Pydantic
 class FipeQuery(BaseModel):
@@ -53,7 +52,7 @@ class FipeQuery(BaseModel):
 async def listar_marcas():
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/brands"
+            url = f"{BASE_URL}/cars/brands"
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
@@ -65,7 +64,7 @@ async def listar_marcas():
 async def listar_modelos(marca_id: str):
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/{marca_id}/modelos"
+            url = f"{BASE_URL}/cars/brands/{marca_id}/models"
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
@@ -73,12 +72,11 @@ async def listar_modelos(marca_id: str):
         logger.error(f"Erro ao obter modelos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter modelos: {str(e)}")
 
-
 @app.get("/anos/{marca_id}/{modelo_id}")
 async def listar_anos(marca_id: str, modelo_id: str):
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos"
+            url = f"{BASE_URL}/cars/brands/{marca_id}/models/{modelo_id}/years"
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
@@ -95,13 +93,12 @@ async def consultar_fipe(marca: str, modelo: str, ano: str):
             return {"valor_fipe": cache[cache_key]}
 
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/brands/{marca}/models/{modelo}/years/{ano}"
+            url = f"{BASE_URL}/cars/brands/{marca}/models/{modelo}/years/{ano}"
             response = await client.get(url)
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor = fipe_data.get("valor")
-
+        valor = fipe_data.get("Valor") or fipe_data.get("valor")
         if not valor:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
@@ -112,7 +109,6 @@ async def consultar_fipe(marca: str, modelo: str, ano: str):
         logger.error(f"Erro ao consultar FIPE: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
-
 @app.get("/calcular")
 async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
@@ -120,12 +116,12 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
 
         # Consulta FIPE
         async with httpx.AsyncClient() as client:
-            url_fipe = f"{BASE_URL}/{params.marca}/modelos/{params.modelo}/anos/{params.ano}"
+            url_fipe = f"{BASE_URL}/cars/brands/{params.marca}/models/{params.modelo}/years/{params.ano}"
             response = await client.get(url_fipe)
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor_fipe_str = fipe_data.get("valor")
+        valor_fipe_str = fipe_data.get("Valor") or fipe_data.get("valor")
         if not valor_fipe_str:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
