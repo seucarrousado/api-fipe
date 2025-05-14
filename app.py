@@ -30,11 +30,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_URL = "https://parallelum.com.br/fipe/api/v1/carros/marcas"
+BASE_URL = "https://api.invertexto.com/v1/fipe"
+TOKEN = os.getenv("INVERTEXTO_API_TOKEN")  # Token seguro via variável de ambiente
 
 # Cache para dados da FIPE (1 hora de validade)
 cache = TTLCache(maxsize=100, ttl=3600)
-
 
 # Validação de Parâmetros com Pydantic
 class FipeQuery(BaseModel):
@@ -49,24 +49,23 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
-
 @app.get("/marcas")
 async def listar_marcas():
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(BASE_URL)
+            url = f"{BASE_URL}/brands/1?token={TOKEN}"
+            response = await client.get(url)
             response.raise_for_status()
             return response.json()
     except Exception as e:
         logger.error(f"Erro ao obter marcas: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter marcas: {str(e)}")
 
-
 @app.get("/modelos/{marca_id}")
 async def listar_modelos(marca_id: str):
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/{marca_id}/modelos"
+            url = f"{BASE_URL}/models/{marca_id}?token={TOKEN}"
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
@@ -74,12 +73,11 @@ async def listar_modelos(marca_id: str):
         logger.error(f"Erro ao obter modelos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter modelos: {str(e)}")
 
-
-@app.get("/anos/{marca_id}/{modelo_id}")
-async def listar_anos(marca_id: str, modelo_id: str):
+@app.get("/anos/{fipe_code}")
+async def listar_anos(fipe_code: str):
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/{marca_id}/modelos/{modelo_id}/anos"
+            url = f"{BASE_URL}/years/{fipe_code}?token={TOKEN}"
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
@@ -87,52 +85,50 @@ async def listar_anos(marca_id: str, modelo_id: str):
         logger.error(f"Erro ao obter anos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
 
-
 @app.get("/fipe")
-async def consultar_fipe(marca: str, modelo: str, ano: str):
+async def consultar_fipe(fipe_code: str):
     try:
-        cache_key = f"{marca}_{modelo}_{ano}"
+        cache_key = f"{fipe_code}"
         if cache_key in cache:
             logger.info(f"Valor FIPE recuperado do cache para {cache_key}")
             return {"valor_fipe": cache[cache_key]}
 
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/{marca}/modelos/{modelo}/anos/{ano}"
+            url = f"{BASE_URL}/years/{fipe_code}?token={TOKEN}"
             response = await client.get(url)
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor = fipe_data.get("Valor")
-        if not valor:
+        valores = fipe_data.get("years", [])
+        if not valores:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
-        cache[cache_key] = valor
-        return {"valor_fipe": valor}
+        valor_mais_recente = valores[-1]["price"]
+
+        cache[cache_key] = valor_mais_recente
+        return {"valor_fipe": valor_mais_recente}
 
     except Exception as e:
         logger.error(f"Erro ao consultar FIPE: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
-
 
 @app.get("/calcular")
 async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
         params = FipeQuery(marca=marca, modelo=modelo, ano=ano, pecas=pecas)
 
-        # Consulta FIPE
         async with httpx.AsyncClient() as client:
-            url_fipe = f"{BASE_URL}/{params.marca}/modelos/{params.modelo}/anos/{params.ano}"
+            url_fipe = f"{BASE_URL}/years/{params.modelo}?token={TOKEN}"
             response = await client.get(url_fipe)
             response.raise_for_status()
             fipe_data = response.json()
 
-        valor_fipe_str = fipe_data.get("Valor")
-        if not valor_fipe_str:
+        valores = fipe_data.get("years", [])
+        if not valores:
             raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
-        valor_fipe = float(re.sub(r'[^\d,]', '', valor_fipe_str).replace(',', '.'))
+        valor_fipe = valores[-1]["price"]
 
-        # Processa as peças
         lista_pecas = [p.strip() for p in params.pecas.split(",") if p.strip()]
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             params.marca, params.modelo, params.ano, lista_pecas
@@ -168,23 +164,20 @@ def buscar_via_ia(peca, marca, modelo, ano):
 
     return response.choices[0].text.strip()
 
-
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
     total_abatimento = 0
 
     for peca in pecas_selecionadas:
         if not peca or peca.lower() == "não":
-            continue  # Ignora peças não selecionadas
+            continue
 
         try:
             ia_response = buscar_via_ia(peca, marca_nome, modelo_nome, ano_nome)
 
-            # Extração do preço médio da resposta da IA
-            preco_match = re.search(r"Preço Médio: R\$ ([\d\.,]+)", ia_response)
+            preco_match = re.search(r"Preço Médio: R\\$ ([\\d\\.,]+)", ia_response)
             preco_medio = float(preco_match.group(1).replace(".", "").replace(",", ".")) if preco_match else 0.0
 
-            # Extração dos links
             links = re.findall(r"https?://\S+", ia_response)
 
             if preco_medio == 0.0:
