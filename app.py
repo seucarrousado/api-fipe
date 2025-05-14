@@ -155,14 +155,17 @@ def buscar_via_ia(peca, marca, modelo, ano):
         "- Preço Médio: R$ [Valor]\n- Links:\n1. [Link1]\n2. [Link2]\n3. [Link3]"
     )
 
-    response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt=prompt,
-        max_tokens=500,
-        temperature=0.2
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "Você é um especialista em avaliação de peças automotivas."},
+            {"role": "user", "content": prompt}
+        ]
     )
 
-    return response.choices[0].text.strip()
+    return response.choices[0].message.content.strip()
 
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
