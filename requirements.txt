@@ -5,4 +5,4 @@ beautifulsoup4
 httpx
 cachetools
 pydantic
-openai
+openai==1.0.0
