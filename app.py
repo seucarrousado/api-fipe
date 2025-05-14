@@ -155,7 +155,7 @@ def buscar_via_ia(peca, marca, modelo, ano):
         "- Preço Médio: R$ [Valor]\n- Links:\n1. [Link1]\n2. [Link2]\n3. [Link3]"
     )
 
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
 
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
