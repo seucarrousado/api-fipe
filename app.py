@@ -130,7 +130,7 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         valor_fipe = valores[-1]["price"]
 
         lista_pecas = [p.strip() for p in params.pecas.split(",") if p.strip()]
-        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio_apify(
+        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             params.marca, params.modelo, params.ano, lista_pecas
         )
 
@@ -147,6 +147,7 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         logger.error(f"Erro no cálculo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
 
+# Aqui começa a função de busca dos preços via Apify
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     import json
     relatorio = []
@@ -176,7 +177,9 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     continue
 
                 dataset_id = data["data"]["defaultDatasetId"]
-                dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={apify_token}"
+                dataset_url = (
+                    f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={apify_token}"
+                )
                 dataset_resp = await client.get(dataset_url)
                 dataset_resp.raise_for_status()
                 produtos = dataset_resp.json()
