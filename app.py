@@ -130,7 +130,7 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         valor_fipe = valores[-1]["price"]
 
         lista_pecas = [p.strip() for p in params.pecas.split(",") if p.strip()]
-        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
+        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio_apify(
             params.marca, params.modelo, params.ano, lista_pecas
         )
 
@@ -147,62 +147,63 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         logger.error(f"Erro no cálculo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
 
-async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+async def buscar_precos_e_gerar_relatorio_apify(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
     total_abatimento = 0
     apify_token = os.getenv("APIFY_API_TOKEN")
+    if not apify_token:
+        raise HTTPException(status_code=500, detail="Token da API Apify não configurado.")
+
+    headers = {"Authorization": f"Bearer {apify_token}"}
+    api_url = "https://api.apify.com/v2/actor-tasks/PataeAthih1fU9TX7/runs?token=" + apify_token  # Substitua pelo ID correto se necessário
 
     for peca in pecas_selecionadas:
         if not peca or peca.lower() == "não":
             continue
 
         try:
-            # Monta a consulta para a API da Apify
-            search_query = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
-            url = "https://api.apify.com/v2/acts/karamelo~mercadolivre-scraper-brasil-portugues/run-sync-get-dataset-items"
-
-            params = {
-                "token": apify_token,
-                "search": search_query,
-                "language": "portuguese",
-                "maxItems": 3,  # Limita a 3 resultados
-                "format": "json"
-            }
-
+            payload = {"nome_do_produto": f"{peca} {marca_nome} {modelo_nome} {ano_nome}"}
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                resultados = response.json()
+                start_response = await client.post(api_url, headers=headers, json=payload)
+                start_response.raise_for_status()
+                run_data = start_response.json()
+                dataset_id = run_data.get("data", {}).get("defaultDatasetId")
 
-            # Calcula o preço médio dos 3 primeiros resultados
-            precos = []
-            links = []
-
-            for item in resultados[:3]:
-                preco = item.get("novoPreco") or item.get("precoAnterior")
-                try:
-                    preco_float = float(str(preco).replace(",", "."))
-                    precos.append(preco_float)
-                except (ValueError, TypeError):
+                if not dataset_id:
+                    relatorio.append({"item": peca, "erro": "Nenhum dataset retornado pela API Apify."})
                     continue
 
-                links.append(item.get("zProdutoLink"))
+                dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json"
+                results_response = await client.get(dataset_url, headers=headers)
+                results_response.raise_for_status()
+                results = results_response.json()
 
-            if not precos:
-                relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado na pesquisa."})
-                continue
+                # Pegamos os 3 primeiros preços
+                precos = []
+                links = []
+                for item in results[:3]:
+                    try:
+                        preco = float(item.get("novoPreco", "0").replace(",", "."))
+                        precos.append(preco)
+                        links.append(item.get("zProdutoLink"))
+                    except (ValueError, AttributeError):
+                        continue
 
-            preco_medio = round(sum(precos) / len(precos), 2)
-            total_abatimento += preco_medio
+                if not precos:
+                    relatorio.append({"item": peca, "erro": "Nenhum preço encontrado pela API Apify."})
+                    continue
 
-            relatorio.append({
-                "item": peca,
-                "preco_medio": preco_medio,
-                "abatido": preco_medio,
-                "links": links
-            })
+                preco_medio = sum(precos) / len(precos)
+                total_abatimento += preco_medio
+
+                relatorio.append({
+                    "item": peca,
+                    "preco_medio": round(preco_medio, 2),
+                    "abatido": round(preco_medio, 2),
+                    "links": links
+                })
 
         except Exception as e:
-            relatorio.append({"item": peca, "erro": f"Erro ao buscar na API da Apify: {str(e)}"})
+            relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
     return relatorio, total_abatimento
