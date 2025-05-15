@@ -147,46 +147,52 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         logger.error(f"Erro no cálculo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
 
-def buscar_via_ia(peca, marca, modelo, ano):
-    prompt = (
-        f"Buscar no site Mercado Livre a peça '{peca}' para o veículo "
-        f"{marca} {modelo} {ano}. Retorne apenas os 3 melhores preços e links diretos "
-        f"dos anúncios. Calcule o preço médio e forneça no formato:\n"
-        "- Preço Médio: R$ [Valor]\n- Links:\n1. [Link1]\n2. [Link2]\n3. [Link3]"
-    )
-
-    client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
-
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "Você é um especialista em avaliação de peças automotivas."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    return response.choices[0].message.content.strip()
-
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
     total_abatimento = 0
+    apify_token = os.getenv("APIFY_API_TOKEN")
 
     for peca in pecas_selecionadas:
         if not peca or peca.lower() == "não":
             continue
 
         try:
-            ia_response = buscar_via_ia(peca, marca_nome, modelo_nome, ano_nome)
+            # Monta a consulta para a API da Apify
+            search_query = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
+            url = "https://api.apify.com/v2/acts/karamelo~mercadolivre-scraper-brasil-portugues/run-sync-get-dataset-items"
 
-            preco_match = re.search(r"Preço Médio: R\\$ ([\\d\\.,]+)", ia_response)
-            preco_medio = float(preco_match.group(1).replace(".", "").replace(",", ".")) if preco_match else 0.0
+            params = {
+                "token": apify_token,
+                "search": search_query,
+                "language": "portuguese",
+                "maxItems": 3,  # Limita a 3 resultados
+                "format": "json"
+            }
 
-            links = re.findall(r"https?://\S+", ia_response)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                resultados = response.json()
 
-            if preco_medio == 0.0:
-                relatorio.append({"item": peca, "erro": "Preço médio não encontrado pela IA."})
+            # Calcula o preço médio dos 3 primeiros resultados
+            precos = []
+            links = []
+
+            for item in resultados[:3]:
+                preco = item.get("novoPreco") or item.get("precoAnterior")
+                try:
+                    preco_float = float(str(preco).replace(",", "."))
+                    precos.append(preco_float)
+                except (ValueError, TypeError):
+                    continue
+
+                links.append(item.get("zProdutoLink"))
+
+            if not precos:
+                relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado na pesquisa."})
                 continue
 
+            preco_medio = round(sum(precos) / len(precos), 2)
             total_abatimento += preco_medio
 
             relatorio.append({
@@ -197,6 +203,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             })
 
         except Exception as e:
-            relatorio.append({"item": peca, "erro": f"Erro na resposta da IA: {str(e)}"})
+            relatorio.append({"item": peca, "erro": f"Erro ao buscar na API da Apify: {str(e)}"})
 
     return relatorio, total_abatimento
