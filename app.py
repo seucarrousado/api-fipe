@@ -153,30 +153,43 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
     apify_token = os.getenv("APIFY_API_TOKEN")
-    apify_actor_id = "PataeAthih1fU9TX7"  # ID correto do seu Actor
+    apify_task = "seucarrousado~buscarprecomercadolivre"  # Nome da Tarefa do Apify
 
-    api_url = f"https://api.apify.com/v2/acts/{apify_actor_id}/runs?token={apify_token}"
+    api_url = f"https://api.apify.com/v2/actor-tasks/{apify_task}/runs?token={apify_token}"
 
     async with httpx.AsyncClient() as client:
         for peca in pecas_selecionadas:
             if not peca or peca.lower() == "não":
                 continue
 
-            payload = {
-                "nome_do_produto": f"{peca} {marca_nome} {modelo_nome} {ano_nome}",
-                "maximo_de_paginas": 1
-            }
+            # Termo de busca genérico
+            termo_busca = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
+
+            payload = { "nome_do_produto": termo_busca, "maximo_de_paginas": 1 }
 
             try:
+                # Inicia a task no Apify
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 data = response.json()
 
-                if not data.get("data", {}).get("defaultDatasetId"):
-                    relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
+                run_id = data.get("data", {}).get("id")
+                if not run_id:
+                    relatorio.append({"item": peca, "erro": "Erro ao iniciar busca no Apify."})
                     continue
 
-                dataset_id = data["data"]["defaultDatasetId"]
+                # Aguarda conclusão da task (simples polling)
+                status = ""
+                while status != "SUCCEEDED":
+                    await asyncio.sleep(2)
+                    status_resp = await client.get(f"https://api.apify.com/v2/actor-runs/{run_id}?token={apify_token}")
+                    status = status_resp.json().get("data", {}).get("status", "")
+                    if status in ["FAILED", "ABORTED"]:
+                        relatorio.append({"item": peca, "erro": "Task no Apify falhou."})
+                        continue
+
+                # Busca os dados do dataset
+                dataset_id = status_resp.json().get("data", {}).get("defaultDatasetId")
                 dataset_url = (
                     f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={apify_token}"
                 )
@@ -185,12 +198,12 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 produtos = dataset_resp.json()
 
                 if not produtos:
-                    relatorio.append({"item": peca, "erro": "Nenhum resultado no dataset."})
+                    relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
                     continue
 
                 precos = []
                 links = []
-                for item in produtos[:3]:  # Apenas os 3 primeiros resultados
+                for item in produtos[:3]:
                     try:
                         preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
                         precos.append(preco)
@@ -199,7 +212,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         continue
 
                 if not precos:
-                    relatorio.append({"item": peca, "erro": "Preços não encontrados nos resultados."})
+                    relatorio.append({"item": peca, "erro": "Preços não encontrados."})
                     continue
 
                 preco_medio = round(sum(precos) / len(precos), 2)
