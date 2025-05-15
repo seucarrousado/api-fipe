@@ -229,6 +229,4 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
     return relatorio, total_abatimento
-@app.head("/{full_path:path}")
-async def handle_head_requests(full_path: str):
-    return {}
+
