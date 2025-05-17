@@ -164,30 +164,29 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
                     continue
 
-precos = []
-links = []
-for item in produtos[:5]:  # Considera no máximo 5 produtos retornados
-    try:
-        preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
-        precos.append(preco)
-        links.append(item.get("zProdutoLink", ""))
-    except:
-        continue
+                precos = []
+                links = []
+                for item in produtos[:5]:
+                    try:
+                        preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
+                        precos.append(preco)
+                        links.append(item.get("zProdutoLink", ""))
+                    except:
+                        continue
 
-if not precos:
-    relatorio.append({"item": peca, "erro": "Preços não encontrados."})
-    continue
+                if not precos:
+                    relatorio.append({"item": peca, "erro": "Preços não encontrados."})
+                    continue
 
-preco_medio = round(sum(precos) / len(precos), 2)
-total_abatimento += preco_medio
+                preco_medio = round(sum(precos) / len(precos), 2)
+                total_abatimento += preco_medio
 
-# Garante no máximo 3 links no relatório final
-relatorio.append({
-    "item": peca,
-    "preco_medio": preco_medio,
-    "abatido": preco_medio,
-    "links": links[:3]
-})
+                relatorio.append({
+                    "item": peca,
+                    "preco_medio": preco_medio,
+                    "abatido": preco_medio,
+                    "links": links[:3]
+                })
 
             except Exception as e:
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
