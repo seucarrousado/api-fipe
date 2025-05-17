@@ -164,7 +164,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
                     continue
 
-                precos = []
+precos = []
 links = []
 for item in produtos[:5]:  # Considera no máximo 5 produtos retornados
     try:
