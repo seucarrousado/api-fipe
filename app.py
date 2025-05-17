@@ -44,6 +44,41 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
+# Rotas para alimentar o frontend com marcas, modelos e anos
+@app.get("/marcas")
+async def listar_marcas():
+    try:
+        async with httpx.AsyncClient() as client:
+            url = f"{BASE_URL}/brands/1?token={TOKEN}"
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter marcas: {str(e)}")
+
+@app.get("/modelos/{marca_id}")
+async def listar_modelos(marca_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            url = f"{BASE_URL}/models/{marca_id}?token={TOKEN}"
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter modelos: {str(e)}")
+
+@app.get("/anos/{fipe_code}")
+async def listar_anos(fipe_code: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            url = f"{BASE_URL}/years/{fipe_code}?token={TOKEN}"
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
+
+# Consulta de valor FIPE
 @app.get("/fipe")
 async def consultar_fipe(fipe_code: str):
     try:
@@ -68,6 +103,7 @@ async def consultar_fipe(fipe_code: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
+# Consulta de preços de peças via Apify
 @app.get("/pecas")
 async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
@@ -82,6 +118,7 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
 
+# Lógica para buscar preços na Apify e calcular o preço médio das peças
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
     total_abatimento = 0
@@ -147,7 +184,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "item": peca,
                     "preco_medio": preco_medio,
                     "abatido": preco_medio,
-                    "links": links[:3]
+                    "links": links[:3]  # Limitar a 3 links no relatório
                 })
 
             except Exception as e:
