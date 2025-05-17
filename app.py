@@ -143,6 +143,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     relatorio.append({"item": peca, "erro": "Erro ao iniciar busca no Apify."})
                     continue
 
+                # Aguardar a execução do Actor finalizar
                 status = ""
                 while status != "SUCCEEDED":
                     await asyncio.sleep(2)
@@ -152,9 +153,9 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         relatorio.append({"item": peca, "erro": "Task no Apify falhou."})
                         continue
 
+                # Obter resultados do Dataset
                 dataset_id = status_resp.json().get("data", {}).get("defaultDatasetId")
                 dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={APIFY_TOKEN}"
-
                 dataset_resp = await client.get(dataset_url)
                 dataset_resp.raise_for_status()
                 produtos = dataset_resp.json()
@@ -184,7 +185,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "item": peca,
                     "preco_medio": preco_medio,
                     "abatido": preco_medio,
-                    "links": links[:3]  # Limitar a 3 links no relatório
+                    "links": links[:3]
                 })
 
             except Exception as e:
