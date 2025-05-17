@@ -164,31 +164,32 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
                     continue
 
-                precos = []
-                links = []
-                for item in produtos[:5]:
-                    try:
-                        preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
-                        precos.append(preco)
-                        links.append(item.get("zProdutoLink", ""))
-                    except:
-                        continue
+precos = []
+links = []
 
-                if not precos:
-                    relatorio.append({"item": peca, "erro": "Preços não encontrados."})
-                    continue
+for item in produtos[:5]:  # Considera no máximo 5 produtos retornados
+    try:
+        preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
+        precos.append(preco)
+        links.append(item.get("zProdutoLink", ""))
+    except Exception:
+        continue
 
-                preco_medio = round(sum(precos) / len(precos), 2)
-                total_abatimento += preco_medio
+if not precos:
+    relatorio.append({"item": peca, "erro": "Preços não encontrados."})
+    continue
 
-                relatorio.append({
-                    "item": peca,
-                    "preco_medio": preco_medio,
-                    "abatido": preco_medio,
-                    "links": links[:3]
-                })
+preco_medio = round(sum(precos) / len(precos), 2)
+total_abatimento += preco_medio
 
-            except Exception as e:
-                relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
+relatorio.append({
+    "item": peca,
+    "preco_medio": preco_medio,
+    "abatido": preco_medio,
+    "links": links[:3]  # Garante no máximo 3 links
+})
 
-    return relatorio, total_abatimento
+except Exception as e:
+    relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
+
+return relatorio, total_abatimento
