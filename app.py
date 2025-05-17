@@ -153,6 +153,7 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
     try:
         params = FipeQuery(marca=marca, modelo=modelo, ano=ano, pecas=pecas)
 
+        # Consulta FIPE separadamente
         async with httpx.AsyncClient() as client:
             url_fipe = f"{BASE_URL}/years/{params.modelo}?token={TOKEN}"
             response = await client.get(url_fipe)
@@ -180,18 +181,13 @@ async def calcular_preco_final(marca: str, modelo: str, ano: str, pecas: str = Q
         }
 
     except Exception as e:
-        logger.error(f"Erro no cálculo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro no cálculo: {str(e)}")
 
-
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
-    import json
     relatorio = []
     total_abatimento = 0
-    apify_token = os.getenv("APIFY_API_TOKEN")
-    apify_task = "karamelo~mercadolivre-scraper-brasil-portugues"  # Nome da Tarefa do Apify
 
-    api_url = f"https://api.apify.com/v2/acts/{apify_task}/runs?token={apify_token}"
+    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/runs?token={APIFY_TOKEN}"
 
     async with httpx.AsyncClient() as client:
         for peca in pecas_selecionadas:
@@ -199,7 +195,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 continue
 
             termo_busca = f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
-            payload = { "keyword": termo_busca, "maxItems": 5 }  # Busca 5 preços
+            payload = {"keyword": termo_busca, "maxItems": 5}
 
             try:
                 response = await client.post(api_url, json=payload)
@@ -214,14 +210,15 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 status = ""
                 while status != "SUCCEEDED":
                     await asyncio.sleep(2)
-                    status_resp = await client.get(f"https://api.apify.com/v2/actor-runs/{run_id}?token={apify_token}")
+                    status_resp = await client.get(f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}")
                     status = status_resp.json().get("data", {}).get("status", "")
                     if status in ["FAILED", "ABORTED"]:
                         relatorio.append({"item": peca, "erro": "Task no Apify falhou."})
                         continue
 
                 dataset_id = status_resp.json().get("data", {}).get("defaultDatasetId")
-                dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={apify_token}"
+                dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={APIFY_TOKEN}"
+
                 dataset_resp = await client.get(dataset_url)
                 dataset_resp.raise_for_status()
                 produtos = dataset_resp.json()
@@ -232,7 +229,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
                 precos = []
                 links = []
-                for item in produtos[:5]:  # Calcula com 5 preços
+                for item in produtos[:5]:
                     try:
                         preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
                         precos.append(preco)
@@ -251,11 +248,10 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "item": peca,
                     "preco_medio": preco_medio,
                     "abatido": preco_medio,
-                    "links": links[:3]  # No relatório, exibe no máximo 3 links
+                    "links": links[:3]  # Exibe no máximo 3 links
                 })
 
             except Exception as e:
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
     return relatorio, total_abatimento
-
