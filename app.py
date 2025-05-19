@@ -12,6 +12,8 @@ app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("calculadora_fipe")
 
+logger.info("[DEBUG] API Inicializada com sucesso!")
+
 origins = [
     "https://slategrey-camel-778778.hostingersite.com",
     "http://localhost",
