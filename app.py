@@ -131,11 +131,7 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         marca_nome = await obter_nome_marca(marca)
         modelo_nome = await obter_nome_modelo(modelo)
 
-        # Regra explícita de conversão do ano
-        if "-" in ano and ano.split("-")[1] == "1":
-            ano_nome = ano.split("-")[0]
-        else:
-            ano_nome = ano
+        ano_nome = ano if ano else "Ano não informado"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
