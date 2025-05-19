@@ -28,7 +28,7 @@ app.add_middleware(
 BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
-APIFY_ACTOR = "karamelo/mercadolivre-scraper-brasil-portugues"
+APIFY_ACTOR = karamelo/mercadolivre-scraper-brasil-portugues
 
 cache = TTLCache(maxsize=100, ttl=3600)
 
