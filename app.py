@@ -131,11 +131,8 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         marca_nome = await obter_nome_marca(marca)
         modelo_nome = await obter_nome_modelo(modelo)
 
-        # Tratamento seguro do ano
-        if "-" in ano:
-            ano_nome = ano.split("-")[0]
-        else:
-            ano_nome = ano
+        # Correção para o ano - remove qualquer sufixo após o hífen
+        ano_nome = ano.split("-")[0] if "-" in ano else ano
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
