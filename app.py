@@ -130,7 +130,7 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = await obter_nome_marca(marca)
-        modelo_nome = await obter_nome_modelo(modelo)
+        modelo_nome = (await obter_nome_modelo(modelo)).replace("  ", " ").strip()
         ano_nome = ano if ano else "Ano não informado"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
@@ -155,7 +155,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             if not peca or peca.lower() == "não":
                 continue
 
-            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}"
+            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
             payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
 
             try:
