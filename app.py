@@ -1,4 +1,3 @@
-You said:
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
@@ -15,7 +14,7 @@ logger = logging.getLogger("calculadora_fipe")
 
 origins = [
     "https://slategrey-camel-778778.hostingersite.com",
-    "http://localhost"
+    "http://localhost",
 ]
 
 app.add_middleware(
@@ -45,7 +44,6 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
-# Rotas para alimentar o frontend com marcas, modelos e anos
 @app.get("/marcas")
 async def listar_marcas():
     try:
@@ -77,7 +75,7 @@ async def obter_nome_marca(codigo_marca):
             if str(marca.get('id')) == str(codigo_marca):
                 return marca.get('brand')
     return "Marca Desconhecida"
-    
+
 async def obter_nome_modelo(codigo_modelo):
     async with httpx.AsyncClient() as client:
         response = await client.get(f"{BASE_URL}/models/{codigo_modelo}?token={TOKEN}")
@@ -86,7 +84,7 @@ async def obter_nome_modelo(codigo_modelo):
         return modelos.get('model', "Modelo Desconhecido")
 
 async def obter_nome_ano(codigo_ano):
-    return codigo_ano.split('-')[0]  # Exemplo: '2022' de '2022-01'
+    return codigo_ano.split('-')[0]
 
 @app.get("/anos/{fipe_code}")
 async def listar_anos(fipe_code: str):
@@ -99,7 +97,6 @@ async def listar_anos(fipe_code: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter anos: {str(e)}")
 
-# Consulta de valor FIPE
 @app.get("/fipe")
 async def consultar_fipe(fipe_code: str):
     try:
@@ -120,18 +117,15 @@ async def consultar_fipe(fipe_code: str):
         valor_mais_recente = valores[-1]["price"]
         cache[cache_key] = valor_mais_recente
         return {"valor_fipe": valor_mais_recente}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
-# Consulta de preços de peças via Apify
 @app.get("/pecas")
 async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = await obter_nome_marca(marca)
         modelo_nome = await obter_nome_modelo(modelo)
-
         ano_nome = ano if ano else "Ano não informado"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
@@ -140,13 +134,11 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
 
         return {
             "total_abatido": f"R$ {total_abatido:.2f}",
-            "relatorio_detalhado": relatorio
+            "relatorio_detalhado": relatorio,
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
 
-# Lógica para buscar preços na Apify e calcular o preço médio das peças
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
     total_abatimento = 0
@@ -171,7 +163,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     relatorio.append({"item": peca, "erro": "Erro ao iniciar busca no Apify."})
                     continue
 
-                # Aguardar a execução do Actor finalizar
                 status = ""
                 while status != "SUCCEEDED":
                     await asyncio.sleep(2)
@@ -181,7 +172,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         relatorio.append({"item": peca, "erro": "Task no Apify falhou."})
                         continue
 
-                # Obter resultados do Dataset
                 dataset_id = status_resp.json().get("data", {}).get("defaultDatasetId")
                 dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={APIFY_TOKEN}"
                 dataset_resp = await client.get(dataset_url)
@@ -199,7 +189,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
                         precos.append(preco)
                         links.append(item.get("zProdutoLink", ""))
-                    except:
+                    except Exception:
                         continue
 
                 if not precos:
@@ -213,9 +203,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "item": peca,
                     "preco_medio": preco_medio,
                     "abatido": preco_medio,
-                    "links": links[:3]
+                    "links": links[:3],
                 })
-
             except Exception as e:
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
