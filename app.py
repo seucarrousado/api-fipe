@@ -157,7 +157,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             if not peca or peca.lower() == "não":
                 continue
 
-            termo_busca = f"{peca.strip()} para {marca_nome} {modelo_nome} {ano_nome}"
+            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}"
             payload = {"keyword": termo_busca, "maxItems": 5}
 
             try:
