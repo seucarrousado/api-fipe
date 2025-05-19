@@ -150,7 +150,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/runs?token={APIFY_TOKEN}"
+    api_url = f"https://api.apify.com/v2/actor-tasks/0umf45PpgHiqNDHfs/runs?token={APIFY_TOKEN}"
 
     async with httpx.AsyncClient() as client:
         for peca in pecas_selecionadas:
