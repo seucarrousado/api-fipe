@@ -1,3 +1,4 @@
+You said:
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
@@ -28,7 +29,7 @@ app.add_middleware(
 BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
-APIFY_ACTOR = "karamelo~mercadolivre-scraper-brasil-portugues"
+APIFY_ACTOR = "seucarrousado/buscarprecomercadolivre"
 
 cache = TTLCache(maxsize=100, ttl=3600)
 
@@ -66,6 +67,26 @@ async def listar_modelos(marca_id: str):
             return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter modelos: {str(e)}")
+
+async def obter_nome_marca(codigo_marca):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{BASE_URL}/brands?token={TOKEN}")
+        response.raise_for_status()
+        marcas = response.json()
+        for marca in marcas:
+            if str(marca.get('id')) == str(codigo_marca):
+                return marca.get('brand')
+    return "Marca Desconhecida"
+    
+async def obter_nome_modelo(codigo_modelo):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{BASE_URL}/models/{codigo_modelo}?token={TOKEN}")
+        response.raise_for_status()
+        modelos = response.json()
+        return modelos.get('model', "Modelo Desconhecido")
+
+async def obter_nome_ano(codigo_ano):
+    return codigo_ano.split('-')[0]  # Exemplo: '2022' de '2022-01'
 
 @app.get("/anos/{fipe_code}")
 async def listar_anos(fipe_code: str):
@@ -108,7 +129,14 @@ async def consultar_fipe(fipe_code: str):
 async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
-        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(marca, modelo, ano, lista_pecas)
+        marca_nome = await obter_nome_marca(marca)
+        modelo_nome = await obter_nome_modelo(modelo)
+
+        ano_nome = ano if ano else "Ano não informado"
+
+        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
+            marca_nome, modelo_nome, ano_nome, lista_pecas
+        )
 
         return {
             "total_abatido": f"R$ {total_abatido:.2f}",
@@ -130,8 +158,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             if not peca or peca.lower() == "não":
                 continue
 
-            termo_busca = f"{peca.strip()} para {marca_nome} {modelo_nome} {ano_nome}"
-            payload = {"keyword": termo_busca, "maxItems": 5}
+            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}"
+            payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
 
             try:
                 response = await client.post(api_url, json=payload)
