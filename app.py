@@ -158,7 +158,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 continue
 
             termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}"
-            payload = {"keyword": termo_busca, "maxItems": 5}
+            payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
 
             try:
                 response = await client.post(api_url, json=payload)
