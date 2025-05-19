@@ -137,13 +137,13 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
                 response = await client.get(url)
                 response.raise_for_status()
                 anos_data = response.json()
-
             if anos_data and isinstance(anos_data, list):
-                ano_nome = anos_data[0]['name']  # Ajuste aqui caso queira outro ano
+                ano_codigo = anos_data[0]['name']
+                ano_nome = ano_codigo.split("-")[0]  # Pega apenas o ano, ex: "2022" de "2022-1"
             else:
                 ano_nome = "Ano não encontrado"
         else:
-            ano_nome = ano
+            ano_nome = ano.split("-")[0]  # Mesmo se vier "2022-1", pega só "2022"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
