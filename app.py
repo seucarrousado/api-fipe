@@ -145,10 +145,12 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
 
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+    import logging
     relatorio = []
     total_abatimento = 0
 
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/runs?token={APIFY_TOKEN}"
+    logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
     logger.info(f"[DEBUG] URL Apify: {api_url}")
     logger.info(f"[DEBUG] Peças Selecionadas: {pecas_selecionadas}")
     logger.info(f"[DEBUG] Marca: {marca_nome}, Modelo: {modelo_nome}, Ano: {ano_nome}")
@@ -178,6 +180,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 status = ""
                 while status != "SUCCEEDED":
                     await asyncio.sleep(2)
+                    logger.info(f"[DEBUG] Consultando status da busca Apify. Run ID: {run_id}")
                     status_resp = await client.get(f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}")
                     status_data = status_resp.json()
                     status = status_data.get("data", {}).get("status", "")
@@ -191,6 +194,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
                 dataset_id = status_data.get("data", {}).get("defaultDatasetId")
                 dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={APIFY_TOKEN}"
+                logger.info(f"[DEBUG] Buscando resultados no dataset. URL: {dataset_url}")
                 dataset_resp = await client.get(dataset_url)
                 dataset_resp.raise_for_status()
                 produtos = dataset_resp.json()
@@ -224,6 +228,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "abatido": preco_medio,
                     "links": links[:3],
                 })
+
             except Exception as e:
                 logger.error(f"[ERROR] Erro geral ao buscar preços via Apify: {str(e)}")
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
