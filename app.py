@@ -130,8 +130,24 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = await obter_nome_marca(marca)
         modelo_nome = await obter_nome_modelo(modelo)
-        ano_nome = ano
-        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, lista_pecas)
+
+        if ano == "undefined" or not ano:
+            url = f"{BASE_URL}/years/{modelo}?token={TOKEN}"
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                anos_data = response.json()
+
+            if anos_data and isinstance(anos_data, list):
+                ano_nome = anos_data[0]['name']  # Ajuste aqui caso queira outro ano
+            else:
+                ano_nome = "Ano não encontrado"
+        else:
+            ano_nome = ano
+
+        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
+            marca_nome, modelo_nome, ano_nome, lista_pecas
+        )
 
         return {
             "total_abatido": f"R$ {total_abatido:.2f}",
