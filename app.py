@@ -122,6 +122,12 @@ async def consultar_fipe(fipe_code: str):
 @app.get("/pecas")
 async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
+        from urllib.parse import unquote
+
+        marca = unquote(marca)
+        modelo = unquote(modelo)
+        pecas = unquote(pecas)
+        
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = await obter_nome_marca(marca)
         modelo_nome = await obter_nome_modelo(modelo)
