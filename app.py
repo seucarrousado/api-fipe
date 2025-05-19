@@ -130,7 +130,7 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = await obter_nome_marca(marca)
         modelo_nome = await obter_nome_modelo(modelo)
-        ano_nome = await obter_nome_ano(ano)
+        ano_nome = ano
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, lista_pecas)
 
         return {
