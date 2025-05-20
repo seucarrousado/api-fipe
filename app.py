@@ -172,7 +172,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 logger.info(f"[DEBUG] Status Apify: {response.status_code}")
                 response.raise_for_status()
                 dados_completos = await response.json()
-                logger.info(f"[DEBUG] Dados completos recebidos do Apify: {dados_completos}")
+               
 
                 if not isinstance(dados_completos, list):
                     logger.error(f"[ERROR] Resposta do Apify não é uma lista: {type(dados_completos)}")
