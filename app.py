@@ -210,6 +210,14 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 for item in dados_completos[:5]:
                     logger.info(f"[DEBUG] Produto bruto: {item}")
 
+                    titulo = item.get("eTituloProduto", "").lower()
+                    modelo_normalizado = modelo_nome.lower().split()[0]
+                    peca_normalizada = peca.lower().split()[0]
+
+                    if peca_normalizada not in titulo or modelo_normalizado not in titulo:
+                        logger.info(f"[DEBUG] Ignorado: título irrelevante → {titulo}")
+                        continue
+
                     preco_str = item.get("novoPreco")
                     if not preco_str:
                         logger.warning(f"[WARN] Produto sem preço válido: {item}")
