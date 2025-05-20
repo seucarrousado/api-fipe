@@ -172,6 +172,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 logger.info(f"[DEBUG] Status Apify: {response.status_code}")
                 response.raise_for_status()
                 produtos = await response.json()
+                logger.info(f"[DEBUG] Dados completos recebidos do Apify: {dados_completos}")
+                produtos = dados_completos.get("items", [])
                 logger.info(f"[DEBUG] Produtos retornados: {produtos}")
 
                 if not produtos:
