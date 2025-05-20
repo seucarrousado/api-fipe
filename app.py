@@ -154,13 +154,15 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+    # ✅ URL correta para executar o actor com entrada dinâmica
+    api_url = f"https://api.apify.com/v2/acts/karamelo~karamelo-mercadolivre-scraper-brasil-portugues/runs?token={APIFY_TOKEN}"
+
     logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
     logger.info(f"[DEBUG] URL Apify: {api_url}")
     logger.info(f"[DEBUG] Peças Selecionadas: {pecas_selecionadas}")
     logger.info(f"[DEBUG] Marca: {marca_nome}, Modelo: {modelo_nome}, Ano: {ano_nome}")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         for peca in pecas_selecionadas:
             if not peca or peca.lower() == "não":
                 continue
