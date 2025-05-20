@@ -175,7 +175,9 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 response.raise_for_status()
 
                 try:
-                    dados_completos = response.json()  # <--- CORRETO, sem await
+                    dados_completos = response.json()
+                    logger.info(f"[DEBUG] Tipo da resposta: {type(dados_completos)}")
+                    logger.info(f"[DEBUG] Conteúdo bruto da resposta Apify: {dados_completos}")
                 except Exception as e:
                     logger.error(f"[ERROR] Falha ao ler JSON: {str(e)}")
                     relatorio.append({"item": peca, "erro": "Resposta do Apify inválida (JSON)."})
@@ -190,12 +192,12 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
                     continue
 
-                produtos = dados_completos
-                logger.info(f"[DEBUG] Produtos retornados (máx 2): {produtos[:2]}")
-
                 precos = []
                 links = []
-                for item in produtos[:5]:
+
+                for item in dados_completos[:5]:
+                    logger.info(f"[DEBUG] Produto bruto: {item}")
+
                     preco_str = item.get("novoPreco")
                     if not preco_str:
                         logger.warning(f"[WARN] Produto sem preço válido: {item}")
