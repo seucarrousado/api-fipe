@@ -237,7 +237,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "item": peca,
                     "preco_medio": preco_medio,
                     "abatido": preco_medio,
-                    "links": links[:3]
+                    "links": links[:3],
                     "imagens": imagens[:3],
                     "precos": precos_texto[:3]
                 })
