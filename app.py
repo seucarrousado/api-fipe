@@ -131,8 +131,8 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         pecas = unquote(pecas)
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
-        marca_nome = await obter_nome_marca(marca)
-        modelo_nome = (await obter_nome_modelo(modelo)).replace("  ", " ").strip()
+        marca_nome = marca
+        modelo_nome = modelo.replace("  ", " ").strip()
         ano_nome = ano if ano else "Ano não informado"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
@@ -151,7 +151,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/runs?token={APIFY_TOKEN}"
+    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
     logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
     logger.info(f"[DEBUG] URL Apify: {api_url}")
     logger.info(f"[DEBUG] Peças Selecionadas: {pecas_selecionadas}")
@@ -167,39 +167,10 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             logger.info(f"[DEBUG] Buscando peça: {termo_busca} | Payload: {payload}")
 
             try:
-                logger.info(f"[DEBUG] Chamando Apify | URL: {api_url} | Payload: {payload}")
                 response = await client.post(api_url, json=payload)
-                logger.info(f"[DEBUG] Status Inicial Apify: {response.status_code}")
+                logger.info(f"[DEBUG] Status Apify: {response.status_code}")
                 response.raise_for_status()
-                data = response.json()
-
-                run_id = data.get("data", {}).get("id")
-                if not run_id:
-                    logger.error(f"[ERROR] Falha ao iniciar busca no Apify. Data: {data}")
-                    relatorio.append({"item": peca, "erro": "Erro ao iniciar busca no Apify."})
-                    continue
-
-                status = ""
-                while status != "SUCCEEDED":
-                    await asyncio.sleep(2)
-                    logger.info(f"[DEBUG] Consultando status da busca Apify. Run ID: {run_id}")
-                    status_resp = await client.get(f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}")
-                    status_data = status_resp.json()
-                    status = status_data.get("data", {}).get("status", "")
-                    logger.info(f"[DEBUG] Status Apify: {status}")
-                    if status in ["FAILED", "ABORTED"]:
-                        relatorio.append({"item": peca, "erro": "Task no Apify falhou."})
-                        break
-
-                if status != "SUCCEEDED":
-                    continue
-
-                dataset_id = status_data.get("data", {}).get("defaultDatasetId")
-                dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true&token={APIFY_TOKEN}"
-                logger.info(f"[DEBUG] Buscando resultados no dataset. URL: {dataset_url}")
-                dataset_resp = await client.get(dataset_url)
-                dataset_resp.raise_for_status()
-                produtos = dataset_resp.json()
+                produtos = response.json()
                 logger.info(f"[DEBUG] Produtos retornados: {produtos}")
 
                 if not produtos:
@@ -215,7 +186,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         links.append(item.get("zProdutoLink", ""))
                     except Exception as e:
                         logger.error(f"[ERROR] Erro ao processar produto: {item} | Erro: {str(e)}")
-                        continue
 
                 if not precos:
                     relatorio.append({"item": peca, "erro": "Preços não encontrados."})
@@ -232,7 +202,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 })
 
             except Exception as e:
-                logger.error(f"[ERROR] Erro geral ao buscar preços via Apify: {str(e)}")
+                logger.error(f"[ERROR] Erro ao buscar preços via Apify: {str(e)}")
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
     logger.info(f"[DEBUG] Relatório final: {relatorio}")
