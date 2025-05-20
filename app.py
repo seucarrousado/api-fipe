@@ -174,9 +174,13 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 dados_completos = await response.json()
                 logger.info(f"[DEBUG] Dados completos recebidos do Apify: {dados_completos}")
 
-                # Aqui está a correção
-                produtos = dados_completos if isinstance(dados_completos, list) else dados_completos.get("items", [])
-                logger.info(f"[DEBUG] Produtos retornados: {produtos}")
+                if not isinstance(dados_completos, list):
+                    logger.error(f"[ERROR] Resposta do Apify não é uma lista: {type(dados_completos)}")
+                    relatorio.append({"item": peca, "erro": "Formato de resposta inesperado (esperava lista)."})
+                    continue
+
+                produtos = dados_completos
+                    logger.info(f"[DEBUG] Produtos retornados: {produtos}")
 
                 if not produtos:
                     relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
