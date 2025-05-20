@@ -203,6 +203,9 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
                 precos = []
                 links = []
+                imagens = []
+                nomes = []
+                precos_texto = []
 
                 for item in dados_completos[:5]:
                     logger.info(f"[DEBUG] Produto bruto: {item}")
@@ -216,6 +219,9 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         preco = float(str(preco_str).replace(".", "").replace(",", "."))
                         precos.append(preco)
                         links.append(item.get("zProdutoLink", ""))
+                        imagens.append(item.get("imagemLink", ""))
+                        nomes.append(item.get("eTituloProduto", ""))
+                        precos_texto.append(preco_str)  
                     except Exception as e:
                         logger.warning(f"[WARN] Erro ao converter preço: {preco_str} | {e}")
                         continue
