@@ -172,7 +172,14 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             try:
                 response = await client.post(api_url, json=payload)
                 logger.info(f"[DEBUG] Status Apify: {response.status_code}")
-                response.raise_for_status()
+
+                try:
+                    response.raise_for_status()
+                except Exception as e:
+                    logger.error(f"[ERROR] Falha no status da resposta: {e}")
+                    logger.error(f"[ERROR] Corpo da resposta: {response.text}")
+                    relatorio.append({"item": peca, "erro": "Erro HTTP ao acessar o Apify."})
+                    continue
 
                 try:
                     dados_completos = response.json()
@@ -226,8 +233,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 })
 
             except Exception as e:
-                logger.error(f"[ERROR] Erro ao buscar preços via Apify: {str(e)}")
-                relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
+                logger.error(f"[ERROR] Erro inesperado ao buscar preços via Apify: {str(e)}")
+                relatorio.append({"item": peca, "erro": f"Erro inesperado ao buscar preços: {str(e)}"})
 
     logger.info(f"[DEBUG] Relatório final: {relatorio}")
     return relatorio, total_abatimento
