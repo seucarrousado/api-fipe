@@ -148,6 +148,9 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
 
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     import logging
+    import httpx
+
+    logger = logging.getLogger("calculadora_fipe")
     relatorio = []
     total_abatimento = 0
 
@@ -168,37 +171,46 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
             try:
                 response = await client.post(api_url, json=payload)
-                logger.info(f"[DEBUG] Resposta completa Apify: {response.text}")
                 logger.info(f"[DEBUG] Status Apify: {response.status_code}")
                 response.raise_for_status()
-                dados_completos = await response.json()
-               
+
+                try:
+                    dados_completos = response.json()  # <--- CORRETO, sem await
+                except Exception as e:
+                    logger.error(f"[ERROR] Falha ao ler JSON: {str(e)}")
+                    relatorio.append({"item": peca, "erro": "Resposta do Apify inválida (JSON)."})
+                    continue
 
                 if not isinstance(dados_completos, list):
                     logger.error(f"[ERROR] Resposta do Apify não é uma lista: {type(dados_completos)}")
-                    relatorio.append({"item": peca, "erro": "Formato de resposta inesperado (esperava lista)."})
+                    relatorio.append({"item": peca, "erro": "Formato de resposta inesperado."})
+                    continue
+
+                if not dados_completos:
+                    relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
                     continue
 
                 produtos = dados_completos
-                logger.info(f"[DEBUG] Produtos retornados: {produtos}")
-
-                if not produtos:
-                    relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
-                    continue
+                logger.info(f"[DEBUG] Produtos retornados (máx 2): {produtos[:2]}")
 
                 precos = []
                 links = []
                 for item in produtos[:5]:
+                    preco_str = item.get("novoPreco")
+                    if not preco_str:
+                        logger.warning(f"[WARN] Produto sem preço válido: {item}")
+                        continue
+
                     try:
-                        preco = float(str(item.get("novoPreco", "0")).replace(".", "").replace(",", "."))
+                        preco = float(str(preco_str).replace(".", "").replace(",", "."))
                         precos.append(preco)
                         links.append(item.get("zProdutoLink", ""))
                     except Exception as e:
-                        logger.error(f"[ERROR] Erro ao processar produto: {item} | Erro: {str(e)}")
+                        logger.warning(f"[WARN] Erro ao converter preço: {preco_str} | {e}")
                         continue
 
                 if not precos:
-                    relatorio.append({"item": peca, "erro": "Preços não encontrados."})
+                    relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado."})
                     continue
 
                 preco_medio = round(sum(precos) / len(precos), 2)
@@ -208,11 +220,11 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "item": peca,
                     "preco_medio": preco_medio,
                     "abatido": preco_medio,
-                    "links": links[:3],
+                    "links": links[:3]
                 })
 
             except Exception as e:
-                logger.error(f"[ERROR] Erro geral ao buscar preços via Apify: {str(e)}")
+                logger.error(f"[ERROR] Erro ao buscar preços via Apify: {str(e)}")
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
     logger.info(f"[DEBUG] Relatório final: {relatorio}")
