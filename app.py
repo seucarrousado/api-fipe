@@ -154,8 +154,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    # ✅ URL correta para executar o actor com entrada dinâmica
-    api_url = f"https://api.apify.com/v2/acts/karamelo~karamelo-mercadolivre-scraper-brasil-portugues/runs?token={APIFY_TOKEN}"
+    # ✅ URL RESTAURADA
+    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
     logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
     logger.info(f"[DEBUG] URL Apify: {api_url}")
