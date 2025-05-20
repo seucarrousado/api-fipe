@@ -180,7 +180,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     continue
 
                 produtos = dados_completos
-                    logger.info(f"[DEBUG] Produtos retornados: {produtos}")
+                logger.info(f"[DEBUG] Produtos retornados: {produtos}")
 
                 if not produtos:
                     relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
