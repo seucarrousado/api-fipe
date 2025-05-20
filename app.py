@@ -171,9 +171,11 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 logger.info(f"[DEBUG] Resposta completa Apify: {response.text}")
                 logger.info(f"[DEBUG] Status Apify: {response.status_code}")
                 response.raise_for_status()
-                produtos = await response.json()
+                dados_completos = await response.json()
                 logger.info(f"[DEBUG] Dados completos recebidos do Apify: {dados_completos}")
-                produtos = dados_completos.get("items", [])
+
+                # Aqui está a correção
+                produtos = dados_completos if isinstance(dados_completos, list) else dados_completos.get("items", [])
                 logger.info(f"[DEBUG] Produtos retornados: {produtos}")
 
                 if not produtos:
@@ -189,6 +191,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         links.append(item.get("zProdutoLink", ""))
                     except Exception as e:
                         logger.error(f"[ERROR] Erro ao processar produto: {item} | Erro: {str(e)}")
+                        continue
 
                 if not precos:
                     relatorio.append({"item": peca, "erro": "Preços não encontrados."})
@@ -205,7 +208,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 })
 
             except Exception as e:
-                logger.error(f"[ERROR] Erro ao buscar preços via Apify: {str(e)}")
+                logger.error(f"[ERROR] Erro geral ao buscar preços via Apify: {str(e)}")
                 relatorio.append({"item": peca, "erro": f"Erro ao buscar preços via Apify: {str(e)}"})
 
     logger.info(f"[DEBUG] Relatório final: {relatorio}")
