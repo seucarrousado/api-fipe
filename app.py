@@ -168,7 +168,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
             try:
                 response = await client.post(api_url, json=payload)
-                logger.info(f"[DEBUG] Status Apify: {response.status_code}")
+                logger.info(f"[DEBUG] Resposta completa Apify: {response.text}")
                 response.raise_for_status()
                 produtos = response.json()
                 logger.info(f"[DEBUG] Produtos retornados: {produtos}")
