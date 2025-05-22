@@ -7,6 +7,9 @@ import logging
 import os
 import asyncio
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
+
 app = FastAPI()
 
 logging.basicConfig(level=logging.INFO)
@@ -148,7 +151,12 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
-    caminho_arquivo = os.path.join(os.path.dirname(__file__), "cidades_por_estado.json")
+    import os
+    import json
+
+    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    caminho_arquivo = os.path.join(BASE_DIR, "cidades_por_estado.json")
+
     try:
         with open(caminho_arquivo, "r", encoding="utf-8") as f:
             dados = json.load(f)
@@ -156,8 +164,8 @@ async def get_cidades_por_estado(uf: str):
             if estado["sigla"].upper() == uf.upper():
                 return estado["cidades"]
         return []
-    except FileNotFoundError:
-        return {"erro": "Arquivo de cidades não encontrado."}
+    except Exception as e:
+        return {"erro": f"Erro ao carregar cidades: {str(e)}"}
         
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     import logging
