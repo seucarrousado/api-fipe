@@ -153,12 +153,8 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
 async def get_cidades_por_estado(uf: str):
     import os
     import json
-
-    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-    caminho_arquivo = os.path.join(BASE_DIR, "cidades_por_estado.json")
-
     try:
-        with open(caminho_arquivo, "r", encoding="utf-8") as f:
+        with open(ARQUIVO_CIDADES, "r", encoding="utf-8") as f:
             dados = json.load(f)
         for estado in dados["estados"]:
             if estado["sigla"].upper() == uf.upper():
