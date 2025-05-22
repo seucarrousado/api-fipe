@@ -145,7 +145,20 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
-
+        
+@app.get("/cidades/{uf}")
+async def get_cidades_por_estado(uf: str):
+    caminho_arquivo = os.path.join(os.path.dirname(__file__), "cidades_por_estado.json")
+    try:
+        with open(caminho_arquivo, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+        for estado in dados["estados"]:
+            if estado["sigla"].upper() == uf.upper():
+                return estado["cidades"]
+        return []
+    except FileNotFoundError:
+        return {"erro": "Arquivo de cidades não encontrado."}
+        
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     import logging
     import httpx
