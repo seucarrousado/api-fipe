@@ -143,8 +143,8 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         )
 
         return {
-            "total_abatido": f"R$ {total_abatido:.2f}",
-            "relatorio_detalhado": relatorio,
+            "total_abatido": total_abatimento,  # <-- valor bruto, float
+            "relatorio_detalhado": relatorio
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
