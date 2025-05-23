@@ -147,7 +147,7 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
             "total_abatido_formatado": f"R$ {total_abatimento:.2f}",  # 👈 string com R$
             "relatorio_detalhado": relatorio
         }
-        except Exception as e:
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
         
 @app.get("/cidades/{uf}")
