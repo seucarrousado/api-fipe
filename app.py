@@ -142,32 +142,37 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
             marca_nome, modelo_nome, ano_nome, lista_pecas
         )       
 
+        # Cálculo da desvalorização por KM
         try:
-            ano_limpo = int(ano_nome.split("-")[0]) if "-" in ano_nome else int(ano_nome)
             ano_atual = datetime.now().year
-            idade = max(1, ano_atual - ano_limpo)
-
+            idade_veiculo = max(ano_atual - int(ano_nome), 0)
             media_anual = 15000
-            fator_correcao_km = 10000
-            taxa_por_bloco = 0.02
+            fator_correcao = 10000
+            taxa_excedente = 0.02
 
-            km_esperado = idade * media_anual
-            excedente = max(km - km_esperado, 0)
-            blocos_excedentes = excedente // fator_correcao_km
-            percentual_desvalorizacao = blocos_excedentes * taxa_por_bloco
+            km_esperado = idade_veiculo * media_anual
+            excedente = max(kmreal - km_esperado, 0)
+            blocos_excedentes = excedente // fator_correcao
+            percentual_desvalorizacao = blocos_excedentes * taxa_excedente
 
-            # Simulação de valor FIPE (pode ser substituído por consulta real se necessário)
-            valor_fipe = 60000.0
-            abatimento_km = round(valor_fipe * percentual_desvalorizacao, 2)
-            total_abatimento += abatimento_km
+            valor_fipe_numerico = None
+            try:
+                valor_fipe_numerico = float(str(valor_fipe).replace("R$", "").replace(".", "").replace(",", "."))
+            except:
+                valor_fipe_numerico = 0
 
-            relatorio.append({
-                "item": "Desvalorização por KM",
-                "abatido": f"R$ {abatimento_km:.2f}",
-                "detalhe": f"{percentual_desvalorizacao*100:.1f}% por {excedente} km excedentes"
-            })
+            desconto_km = round(valor_fipe_numerico * percentual_desvalorizacao, 2)
+
+            if desconto_km > 0:
+                total_abatimento += desconto_km
+                relatorio.append({
+                    "item": "Desvalorização por quilometragem",
+                    "abatido": desconto_km,
+                    "preco_medio": f"-{desconto_km:.2f}",
+                    "detalhe": f"Quilometragem excedente gerou {percentual_desvalorizacao*100:.1f}% de desvalorização"
+                })
         except Exception as e:
-            print("[ERRO QUILOMETRAGEM]", e)
+            logger.warning(f"[WARN] Falha ao calcular desvalorização por km: {e}")
 
         return {
             "total_abatido": f"R$ {total_abatimento:.2f}",
