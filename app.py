@@ -302,4 +302,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 relatorio.append({"item": peca, "erro": f"Erro inesperado ao buscar preços: {str(e)}"})
 
     logger.info(f"[DEBUG] Relatório final: {relatorio}")
-    return relatorio, total_abatimento
+   return {
+    "relatorio_detalhado": relatorio,
+    "total_abatido": round(total_abatimento, 2)
+}
