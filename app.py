@@ -125,7 +125,7 @@ async def consultar_fipe(fipe_code: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
 @app.get("/pecas")
-async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
+async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query(""), km: int = 0):
     try:
         from urllib.parse import unquote
 
@@ -140,14 +140,43 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
-        )
+        )       
+
+        try:
+            ano_limpo = int(ano_nome.split("-")[0]) if "-" in ano_nome else int(ano_nome)
+            ano_atual = datetime.now().year
+            idade = max(1, ano_atual - ano_limpo)
+
+            media_anual = 15000
+            fator_correcao_km = 10000
+            taxa_por_bloco = 0.02
+
+            km_esperado = idade * media_anual
+            excedente = max(km - km_esperado, 0)
+            blocos_excedentes = excedente // fator_correcao_km
+            percentual_desvalorizacao = blocos_excedentes * taxa_por_bloco
+
+            # Simulação de valor FIPE (pode ser substituído por consulta real se necessário)
+            valor_fipe = 60000.0
+            abatimento_km = round(valor_fipe * percentual_desvalorizacao, 2)
+            total_abatimento += abatimento_km
+
+            relatorio.append({
+                "item": "Desvalorização por KM",
+                "abatido": f"R$ {abatimento_km:.2f}",
+                "detalhe": f"{percentual_desvalorizacao*100:.1f}% por {excedente} km excedentes"
+            })
+        except Exception as e:
+            print("[ERRO QUILOMETRAGEM]", e)
 
         return {
-            "total_abatido": f"R$ {total_abatido:.2f}",
-            "relatorio_detalhado": relatorio,
+            "total_abatido": f"R$ {total_abatimento:.2f}",
+            "relatorio_detalhado": relatorio
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
+
         
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
