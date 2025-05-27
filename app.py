@@ -14,7 +14,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://slategrey-camel-778778.hostingersite.com"],  # ✅ coloque seu domínio aqui
+    allow_origins=["https://slategrey-camel-778778.hostingersite.com"],  # seu domínio real
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
