@@ -126,7 +126,7 @@ async def consultar_fipe(fipe_code: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
 @app.get("/pecas")
-async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query(""), km: int = 0):
+async def buscar_precos_pecas(marca: str, modelo: str, ano: str, kmreal: int = Query(0), pecas: str = Query("")):
     try:
         from urllib.parse import unquote
 
@@ -140,7 +140,7 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         ano_nome = ano if ano else "Ano não informado"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
-            marca_nome, modelo_nome, ano_nome, lista_pecas
+            marca_nome, modelo_nome, ano_nome, kmreal, lista_pecas
         )       
 
         # Cálculo da desvalorização por KM
@@ -198,7 +198,7 @@ async def get_cidades_por_estado(uf: str):
     except Exception as e:
         return {"erro": f"Erro ao carregar cidades: {str(e)}"}
         
-async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, kmreal, pecas_selecionadas):
     import logging
     import httpx
     
