@@ -6,6 +6,7 @@ import httpx
 import logging
 import os
 import asyncio
+from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
