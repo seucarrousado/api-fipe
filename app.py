@@ -6,6 +6,7 @@ import httpx
 import logging
 import os
 import asyncio
+from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -200,8 +201,7 @@ async def get_cidades_por_estado(uf: str):
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     import logging
     import httpx
-    from datetime import datetime
-
+    
     logger = logging.getLogger("calculadora_fipe")
     relatorio = []
     total_abatimento = 0
