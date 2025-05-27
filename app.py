@@ -6,7 +6,6 @@ import httpx
 import logging
 import os
 import asyncio
-from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -126,72 +125,29 @@ async def consultar_fipe(fipe_code: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
 @app.get("/pecas")
-async def buscar_precos_pecas(
-    marca: str,
-    modelo: str,
-    ano: str,
-    kmreal: int = Query(0),
-    pecas: str = Query(""),
-    fipe: str = Query("")
-):
+async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
     try:
         from urllib.parse import unquote
 
         marca = unquote(marca)
         modelo = unquote(modelo)
         pecas = unquote(pecas)
-
+        
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
         ano_nome = ano if ano else "Ano não informado"
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
-            marca_nome, modelo_nome, ano_nome, kmreal, lista_pecas
+            marca_nome, modelo_nome, ano_nome, lista_pecas
         )
-
-        # Cálculo da desvalorização por KM (SOMANDO ao total_abatido, sem aplicar ao valor da FIPE aqui)
-        try:
-            ano_atual = datetime.now().year
-            idade_veiculo = max(ano_atual - int(ano_nome), 0)
-            media_anual = 15000
-            fator_correcao = 10000
-            taxa_excedente = 0.02
-
-            km_esperado = idade_veiculo * media_anual
-            excedente = max(kmreal - km_esperado, 0)
-            blocos_excedentes = excedente // fator_correcao
-            percentual_desvalorizacao = blocos_excedentes * taxa_excedente
-
-            valor_fipe_numerico = 0
-            if fipe:
-                try:
-                    valor_fipe_numerico = float(fipe.replace("R$", "").replace(".", "").replace(",", "."))
-                except:
-                    valor_fipe_numerico = 0
-
-            desconto_km = round(valor_fipe_numerico * percentual_desvalorizacao, 2)
-
-            if desconto_km > 0:
-                total_abatido += desconto_km
-                relatorio.append({
-                    "item": "Desvalorização por quilometragem",
-                    "abatido": desconto_km,
-                    "preco_medio": f"-{desconto_km:.2f}",
-                    "detalhe": f"Quilometragem excedente gerou {percentual_desvalorizacao*100:.1f}% de desvalorização"
-                })
-
-        except Exception as e:
-            logger.warning(f"[WARN] Falha ao calcular desvalorização por km: {e}")
 
         return {
             "total_abatido": f"R$ {total_abatido:.2f}",
-            "relatorio_detalhado": relatorio
+            "relatorio_detalhado": relatorio,
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
-
         
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
@@ -207,10 +163,10 @@ async def get_cidades_por_estado(uf: str):
     except Exception as e:
         return {"erro": f"Erro ao carregar cidades: {str(e)}"}
         
-async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, kmreal, pecas_selecionadas):
+async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     import logging
     import httpx
-    
+
     logger = logging.getLogger("calculadora_fipe")
     relatorio = []
     total_abatimento = 0
@@ -317,7 +273,4 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, kmr
                 relatorio.append({"item": peca, "erro": f"Erro inesperado ao buscar preços: {str(e)}"})
 
     logger.info(f"[DEBUG] Relatório final: {relatorio}")
-    return {
-        "relatorio_detalhado": relatorio,
-        "total_abatido": round(total_abatimento, 2)
-    }
+    return relatorio, total_abatimento
