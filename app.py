@@ -12,6 +12,13 @@ ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://slategrey-camel-778778.hostingersite.com"],  # ✅ coloque seu domínio aqui
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("calculadora_fipe")
 
