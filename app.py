@@ -126,14 +126,21 @@ async def consultar_fipe(fipe_code: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
 @app.get("/pecas")
-async def buscar_precos_pecas(marca: str, modelo: str, ano: str, kmreal: int = Query(0), pecas: str = Query("")):
+async def buscar_precos_pecas(
+    marca: str,
+    modelo: str,
+    ano: str,
+    kmreal: int = Query(0),
+    pecas: str = Query(""),
+    fipe: str = Query("")
+):
     try:
         from urllib.parse import unquote
 
         marca = unquote(marca)
         modelo = unquote(modelo)
         pecas = unquote(pecas)
-        
+
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
@@ -141,9 +148,9 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, kmreal: int = Q
 
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, kmreal, lista_pecas
-        )       
+        )
 
-        # Cálculo da desvalorização por KM
+        # Cálculo da desvalorização por KM (SOMANDO ao total_abatido, sem aplicar ao valor da FIPE aqui)
         try:
             ano_atual = datetime.now().year
             idade_veiculo = max(ano_atual - int(ano_nome), 0)
@@ -156,27 +163,29 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, kmreal: int = Q
             blocos_excedentes = excedente // fator_correcao
             percentual_desvalorizacao = blocos_excedentes * taxa_excedente
 
-            valor_fipe_numerico = None
-            try:
-                valor_fipe_numerico = float(str(valor_fipe).replace("R$", "").replace(".", "").replace(",", "."))
-            except:
-                valor_fipe_numerico = 0
+            valor_fipe_numerico = 0
+            if fipe:
+                try:
+                    valor_fipe_numerico = float(fipe.replace("R$", "").replace(".", "").replace(",", "."))
+                except:
+                    valor_fipe_numerico = 0
 
             desconto_km = round(valor_fipe_numerico * percentual_desvalorizacao, 2)
 
             if desconto_km > 0:
-                total_abatimento += desconto_km
+                total_abatido += desconto_km
                 relatorio.append({
                     "item": "Desvalorização por quilometragem",
                     "abatido": desconto_km,
                     "preco_medio": f"-{desconto_km:.2f}",
                     "detalhe": f"Quilometragem excedente gerou {percentual_desvalorizacao*100:.1f}% de desvalorização"
                 })
+
         except Exception as e:
             logger.warning(f"[WARN] Falha ao calcular desvalorização por km: {e}")
 
         return {
-            "total_abatido": f"R$ {total_abatimento:.2f}",
+            "total_abatido": f"R$ {total_abatido:.2f}",
             "relatorio_detalhado": relatorio
         }
 
