@@ -6,6 +6,7 @@ import httpx
 import logging
 import os
 import asyncio
+from datetime import datetime  # Import necessário para o cálculo de desconto de km
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -131,8 +132,52 @@ async def consultar_fipe(fipe_code: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
+# Função para calcular desconto baseado no estado do veículo
+def calcular_desconto_estado(interior, exterior, valor_fipe):
+    """Calcula desconto baseado no estado do veículo"""
+    desconto = 0
+    
+    # Lógica para interior
+    if interior == "regular":
+        desconto += valor_fipe * 0.03  # 3%
+    elif interior == "ruim":
+        desconto += valor_fipe * 0.07  # 7%
+    
+    # Lógica para exterior
+    if exterior == "regular":
+        desconto += valor_fipe * 0.02  # 2%
+    elif exterior == "ruim":
+        desconto += valor_fipe * 0.05  # 5%
+    
+    return desconto
+
+# Função para calcular desconto baseado na quilometragem
+def calcular_desconto_km(km, valor_fipe, ano):
+    """Calcula desconto baseado na quilometragem"""
+    try:
+        ano_atual = datetime.now().year
+        idade = ano_atual - int(ano)
+        km_medio_esperado = idade * 15000  # 15.000 km/ano
+        
+        if km > km_medio_esperado:
+            excedente = km - km_medio_esperado
+            # 0,5% de desconto para cada 1.000 km excedente
+            return valor_fipe * (excedente / 1000) * 0.005
+        return 0
+    except:
+        return 0
+
 @app.get("/pecas")
-async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query(""), fipe_code: str = Query(None), km: float = Query(0.0)):
+async def buscar_precos_pecas(
+    marca: str, 
+    modelo: str, 
+    ano: str, 
+    pecas: str = Query(""), 
+    fipe_code: str = Query(None), 
+    km: float = Query(0.0),
+    estado_interior: str = Query(""),  # Novo parâmetro
+    estado_exterior: str = Query("")   # Novo parâmetro
+):
     try:
         from urllib.parse import unquote
 
@@ -168,9 +213,22 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
         )
+        
+        # Calcular descontos
+        desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
+        desconto_km = calcular_desconto_km(km, valor_fipe, ano_nome)
+        
+        # Calcular valor final
+        valor_final = valor_fipe - total_abatido - desconto_estado - desconto_km
 
         return {
-            "total_abatido": f"R$ {total_abatido:.2f}",
+            "valor_fipe": valor_fipe,
+            "total_abatido": total_abatido,
+            "valor_final": valor_final,
+            "km_desconto": {
+                "valor": desconto_km,
+                "percentual": f"{(desconto_km / valor_fipe * 100):.2f}%" if valor_fipe > 0 else "0%"
+            },
             "relatorio_detalhado": relatorio,
         }
     except Exception as e:
