@@ -134,15 +134,26 @@ async def consultar_fipe(fipe_code: str):
 
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
-    if interior == "regular":
+    
+    # Desconto baseado no estado do interior
+    if interior == "otimo":
+        desconto += 0
+    elif interior == "bom":
+        desconto += valor_fipe * 0.01
+    elif interior == "regular":
         desconto += valor_fipe * 0.03
     elif interior == "ruim":
-        desconto += valor_fipe * 0.07
+        desconto += valor_fipe * 0.05
     
-    if exterior == "regular":
+    # Desconto baseado no estado do exterior
+    if exterior == "otimo":
+        desconto += 0
+    elif exterior == "bom":
+        desconto += valor_fipe * 0.01
+    elif exterior == "regular":
         desconto += valor_fipe * 0.02
     elif exterior == "ruim":
-        desconto += valor_fipe * 0.05
+        desconto += valor_fipe * 0.03
     
     return desconto
 
@@ -169,7 +180,7 @@ async def buscar_precos_pecas(
     km: float = Query(0.0),
     estado_interior: str = Query(""), 
     estado_exterior: str = Query(""),
-    ipva_valor: float = Query(0.0)  # Novo parâmetro para o valor do IPVA
+    ipva_valor: float = Query(0.0)
 ):
     try:
         from urllib.parse import unquote
@@ -202,24 +213,27 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valores[-1]["price"])
                 cache[cache_key] = valor_fipe
 
-        relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
+        relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
         )
         
+        # Calcular todos os descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
         desconto_km = calcular_desconto_km(km, valor_fipe, ano_nome)
-        
-        # O desconto de IPVA é o valor informado pelo usuário (ipva_valor)
         ipva_desconto = ipva_valor
         
-        valor_final = valor_fipe - total_abatido - desconto_estado - desconto_km - ipva_desconto
+        # SOMA de todos os descontos
+        total_descontos = desconto_estado + desconto_km + ipva_desconto + total_pecas
+        
+        # Calcular valor final CORRETAMENTE
+        valor_final = valor_fipe - total_descontos
 
         return {
             "valor_fipe": valor_fipe,
-            "total_abatido": total_abatido,
+            "total_abatido": total_descontos,  # Agora inclui todos os descontos
             "valor_final": valor_final,
-            "desconto_estado": desconto_estado,  # Adicionado para retornar o desconto de estado
-            "ipva_desconto": ipva_desconto,      # Adicionado para retornar o desconto de IPVA
+            "desconto_estado": desconto_estado,
+            "ipva_desconto": ipva_desconto,
             "km_desconto": {
                 "valor": desconto_km,
                 "percentual": f"{(desconto_km / valor_fipe * 100):.2f}%" if valor_fipe > 0 else "0%"
