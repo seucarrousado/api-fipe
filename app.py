@@ -6,7 +6,7 @@ import httpx
 import logging
 import os
 import asyncio
-from datetime import datetime  # Import necessário para o cálculo de desconto de km
+from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -15,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://slategrey-camel-778778.hostingersite.com"],  # seu domínio real
+    allow_origins=["https://slategrey-camel-778778.hostingersite.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -132,36 +132,28 @@ async def consultar_fipe(fipe_code: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
-# Função para calcular desconto baseado no estado do veículo
 def calcular_desconto_estado(interior, exterior, valor_fipe):
-    """Calcula desconto baseado no estado do veículo"""
     desconto = 0
-    
-    # Lógica para interior
     if interior == "regular":
-        desconto += valor_fipe * 0.03  # 3%
+        desconto += valor_fipe * 0.03
     elif interior == "ruim":
-        desconto += valor_fipe * 0.07  # 7%
+        desconto += valor_fipe * 0.07
     
-    # Lógica para exterior
     if exterior == "regular":
-        desconto += valor_fipe * 0.02  # 2%
+        desconto += valor_fipe * 0.02
     elif exterior == "ruim":
-        desconto += valor_fipe * 0.05  # 5%
+        desconto += valor_fipe * 0.05
     
     return desconto
 
-# Função para calcular desconto baseado na quilometragem
 def calcular_desconto_km(km, valor_fipe, ano):
-    """Calcula desconto baseado na quilometragem"""
     try:
         ano_atual = datetime.now().year
         idade = ano_atual - int(ano)
-        km_medio_esperado = idade * 15000  # 15.000 km/ano
+        km_medio_esperado = idade * 15000
         
         if km > km_medio_esperado:
             excedente = km - km_medio_esperado
-            # 0,5% de desconto para cada 1.000 km excedente
             return valor_fipe * (excedente / 1000) * 0.005
         return 0
     except:
@@ -175,8 +167,9 @@ async def buscar_precos_pecas(
     pecas: str = Query(""), 
     fipe_code: str = Query(None), 
     km: float = Query(0.0),
-    estado_interior: str = Query(""),  # Novo parâmetro
-    estado_exterior: str = Query("")   # Novo parâmetro
+    estado_interior: str = Query(""), 
+    estado_exterior: str = Query(""),
+    ipva_valor: float = Query(0.0)  # Novo parâmetro para o valor do IPVA
 ):
     try:
         from urllib.parse import unquote
@@ -190,7 +183,6 @@ async def buscar_precos_pecas(
         modelo_nome = modelo.replace("  ", " ").strip()
         ano_nome = ano if ano else "Ano não informado"
 
-        # Buscar o valor FIPE
         valor_fipe = 0
         if fipe_code:
             cache_key = f"{fipe_code}"
@@ -214,17 +206,20 @@ async def buscar_precos_pecas(
             marca_nome, modelo_nome, ano_nome, lista_pecas
         )
         
-        # Calcular descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
         desconto_km = calcular_desconto_km(km, valor_fipe, ano_nome)
         
-        # Calcular valor final
-        valor_final = valor_fipe - total_abatido - desconto_estado - desconto_km
+        # O desconto de IPVA é o valor informado pelo usuário (ipva_valor)
+        ipva_desconto = ipva_valor
+        
+        valor_final = valor_fipe - total_abatido - desconto_estado - desconto_km - ipva_desconto
 
         return {
             "valor_fipe": valor_fipe,
             "total_abatido": total_abatido,
             "valor_final": valor_final,
+            "desconto_estado": desconto_estado,  # Adicionado para retornar o desconto de estado
+            "ipva_desconto": ipva_desconto,      # Adicionado para retornar o desconto de IPVA
             "km_desconto": {
                 "valor": desconto_km,
                 "percentual": f"{(desconto_km / valor_fipe * 100):.2f}%" if valor_fipe > 0 else "0%"
@@ -256,7 +251,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    # ✅ URL RESTAURADA
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
     logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
