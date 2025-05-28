@@ -15,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://slategrey-camel-778778.hostingersite.com"],
+    allow_origins=["*"],  # Permite todos para teste, ajuste em produção
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -174,7 +174,7 @@ def calcular_desconto_km(km, valor_fipe, ano):
 async def buscar_precos_pecas(
     marca: str, 
     modelo: str, 
-    ano: str, 
+    ano: str,  # Agora recebe o código completo do ano (ex: "1995-1")
     pecas: str = Query(""), 
     fipe_code: str = Query(None), 
     km: float = Query(0.0),
@@ -192,11 +192,13 @@ async def buscar_precos_pecas(
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
-        ano_nome = ano if ano else "Ano não informado"
+        ano_codigo = ano  # Usamos o código completo do ano
 
         valor_fipe = 0
         if fipe_code:
-            cache_key = f"{fipe_code}"
+            # Criar chave de cache única com fipe_code + ano_codigo
+            cache_key = f"{fipe_code}-{ano_codigo}"
+            
             if cache_key in cache:
                 valor_fipe = float(cache[cache_key])
             else:
@@ -210,16 +212,30 @@ async def buscar_precos_pecas(
                 if not valores:
                     raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
-                valor_fipe = float(valores[-1]["price"])
+                # Encontrar o valor específico para o ano_codigo
+                valor_encontrado = None
+                for item in valores:
+                    if item.get("year_id") == ano_codigo:
+                        valor_encontrado = item.get("price")
+                        break
+                
+                # Se não encontrar, usar o primeiro valor disponível
+                if not valor_encontrado and valores:
+                    valor_encontrado = valores[0]["price"]
+                    
+                if not valor_encontrado:
+                    raise HTTPException(status_code=404, detail="Valor FIPE não encontrado para o ano especificado")
+                    
+                valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
-            marca_nome, modelo_nome, ano_nome, lista_pecas
+            marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
         )
         
         # Calcular todos os descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
-        desconto_km = calcular_desconto_km(km, valor_fipe, ano_nome)
+        desconto_km = calcular_desconto_km(km, valor_fipe, ano_codigo.split('-')[0])
         ipva_desconto = ipva_valor
         
         # SOMA de todos os descontos
@@ -230,7 +246,7 @@ async def buscar_precos_pecas(
 
         return {
             "valor_fipe": valor_fipe,
-            "total_abatido": total_descontos,  # Agora inclui todos os descontos
+            "total_abatido": total_descontos,
             "valor_final": valor_final,
             "desconto_estado": desconto_estado,
             "ipva_desconto": ipva_desconto,
