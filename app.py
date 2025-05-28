@@ -145,6 +145,26 @@ async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Qu
         modelo_nome = modelo.replace("  ", " ").strip()
         ano_nome = ano if ano else "Ano não informado"
 
+        # Buscar o valor FIPE
+        valor_fipe = 0
+        if fipe_code:
+            cache_key = f"{fipe_code}"
+            if cache_key in cache:
+                valor_fipe = float(cache[cache_key])
+            else:
+                async with httpx.AsyncClient() as client:
+                    url = f"{BASE_URL}/years/{fipe_code}?token={TOKEN}"
+                    response = await client.get(url)
+                    response.raise_for_status()
+                    fipe_data = response.json()
+
+                valores = fipe_data.get("years", [])
+                if not valores:
+                    raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
+
+                valor_fipe = float(valores[-1]["price"])
+                cache[cache_key] = valor_fipe
+
         relatorio, total_abatido = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_nome, lista_pecas
         )
