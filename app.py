@@ -132,7 +132,7 @@ async def consultar_fipe(fipe_code: str):
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
 @app.get("/pecas")
-async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query("")):
+async def buscar_precos_pecas(marca: str, modelo: str, ano: str, pecas: str = Query(""), fipe_code: str = Query(None), km: float = Query(0.0)):
     try:
         from urllib.parse import unquote
 
