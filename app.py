@@ -182,7 +182,8 @@ async def buscar_precos_pecas(
     km: float = Query(0.0),
     estado_interior: str = Query(""), 
     estado_exterior: str = Query(""),
-    ipva_valor: float = Query(0.0)
+    ipva_valor: float = Query(0.0),
+    peca_extra: str = Query("")  # Novo parâmetro para peças extras
 ):
     try:
         from urllib.parse import unquote
@@ -192,6 +193,11 @@ async def buscar_precos_pecas(
         pecas = unquote(pecas)
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
+        
+        # ADICIONAR PEÇAS EXTRAS SE EXISTIREM
+        if peca_extra and peca_extra.strip():
+            lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
+            
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
         ano_codigo = ano  # Usamos o código completo do ano
