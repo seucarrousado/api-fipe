@@ -172,14 +172,14 @@ def calcular_desconto_km(km, valor_fipe, ano):
     except:
         return 0
 
-# Função corrigida para usar o formato correto da API v2
+# Função corrigida com novo formato de URL
 async def get_tire_specifications(marca, modelo, ano):
     try:
-        # Formatar marca e modelo para a API - usar apenas a primeira palavra
+        # Usar apenas a primeira palavra do modelo (ex: "ARGO 1.0 6V Flex" -> "argo")
         formatted_make = marca.lower().split()[0].replace(" ", "_")
         formatted_model = modelo.lower().split()[0].replace(" ", "_")
         
-        # URL corrigida para v2 com formato simplificado
+        # URL corrigida
         url = f"https://api.wheel-size.com/v2/models/{formatted_make}/{formatted_model}/?user_key={WHEEL_SIZE_TOKEN}"
         
         logger.info(f"Chamando Wheel-Size API: {url}")
