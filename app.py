@@ -1,3 +1,5 @@
+copia de segurança app.py
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
@@ -8,7 +10,6 @@ import os
 import asyncio
 from datetime import datetime
 import json
-from typing import Optional
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -41,10 +42,8 @@ app.add_middleware(
 )
 
 BASE_URL = "https://api.invertexto.com/v1/fipe"
-WHEEL_SIZE_BASE = "https://api.wheel-size.com/v2"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
-WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
 cache = TTLCache(maxsize=100, ttl=3600)  # Cache para FIPE
 peca_cache = TTLCache(maxsize=500, ttl=86400)  # Cache para peças (24 horas)
@@ -140,6 +139,7 @@ async def consultar_fipe(fipe_code: str):
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
     
+    # Desconto baseado no estado do interior
     if interior == "otimo":
         desconto += 0
     elif interior == "bom":
@@ -149,6 +149,7 @@ def calcular_desconto_estado(interior, exterior, valor_fipe):
     elif interior == "ruim":
         desconto += valor_fipe * 0.05
     
+    # Desconto baseado no estado do exterior
     if exterior == "otimo":
         desconto += 0
     elif exterior == "bom":
@@ -173,74 +174,18 @@ def calcular_desconto_km(km, valor_fipe, ano):
     except:
         return 0
 
-async def get_original_tire_size(make: str, model: str, year: int) -> Optional[dict]:
-    """Busca o tamanho original do pneu usando a API Wheel Size"""
-    cache_key = f"tire-size|{make}|{model}|{year}"
-    if cache_key in peca_cache:
-        return peca_cache[cache_key]
-    
-    try:
-        url = f"{WHEEL_SIZE_BASE}/modifications/"
-        params = {
-            'make': make.lower(),
-            'model': model.lower(),
-            'year': year,
-            'user_key': WHEEL_SIZE_TOKEN
-        }
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params)
-            if response.status_code != 200:
-                logger.error(f"Erro na API Wheel Size: {response.status_code}")
-                return None
-                
-            data = response.json()
-            modificacoes = data.get("data", [])
-
-            for m in modificacoes:
-                wheels = m.get("wheels", [])
-                for w in wheels:
-                    if w.get("is_stock") and w.get("tire"):
-                        tire = w["tire"]
-                        width = tire.get("section_width")
-                        aspect = tire.get("aspect_ratio")
-                        rim = tire.get("rim_diameter")
-                        if width and aspect and rim:
-                            medida = f"{width}/{aspect} R{rim}"
-                            result = {
-                                "pneu_original": medida,
-                                "modification": m.get("name"),
-                                "slug": m.get("slug")
-                            }
-                            peca_cache[cache_key] = result
-                            return result
-            return None
-    except Exception as e:
-        logger.error(f"Erro ao buscar pneus: {str(e)}")
-        return None
-
-@app.get("/pneu-do-modelo")
-async def get_pneu_por_modelo(
-    make: str = Query(..., example="fiat"),
-    model: str = Query(..., example="argo"),
-    year: int = Query(..., example=2022)
-):
-    result = await get_original_tire_size(make, model, year)
-    if result:
-        return result
-    return {"erro": "Nenhum pneu original encontrado"}
-
 @app.get("/pecas")
 async def buscar_precos_pecas(
     marca: str, 
     modelo: str, 
-    ano: str,
+    ano: str,  # Agora recebe o código completo do ano (ex: "1995-1")
     pecas: str = Query(""), 
     fipe_code: str = Query(None), 
     km: float = Query(0.0),
     estado_interior: str = Query(""), 
     estado_exterior: str = Query(""),
     ipva_valor: float = Query(0.0),
-    peca_extra: str = Query("")
+    peca_extra: str = Query("")  # Novo parâmetro para peças extras
 ):
     try:
         from urllib.parse import unquote
@@ -251,15 +196,17 @@ async def buscar_precos_pecas(
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         
+        # ADICIONAR PEÇAS EXTRAS SE EXISTIREM
         if peca_extra and peca_extra.strip():
             lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
             
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
-        ano_codigo = ano
+        ano_codigo = ano  # Usamos o código completo do ano
 
         valor_fipe = 0
         if fipe_code:
+            # Criar chave de cache única com fipe_code + ano_codigo
             cache_key = f"{fipe_code}-{ano_codigo}"
             
             if cache_key in cache:
@@ -275,12 +222,14 @@ async def buscar_precos_pecas(
                 if not valores:
                     raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
+                # Encontrar o valor específico para o ano_codigo
                 valor_encontrado = None
                 for item in valores:
                     if item.get("year_id") == ano_codigo:
                         valor_encontrado = item.get("price")
                         break
                 
+                # Se não encontrar, usar o primeiro valor disponível
                 if not valor_encontrado and valores:
                     valor_encontrado = valores[0]["price"]
                     
@@ -294,12 +243,15 @@ async def buscar_precos_pecas(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
         )
         
+        # Calcular todos os descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
         desconto_km = calcular_desconto_km(km, valor_fipe, ano_codigo.split('-')[0])
         ipva_desconto = ipva_valor
         
+        # SOMA de todos os descontos
         total_descontos = desconto_estado + desconto_km + ipva_desconto + total_pecas
         
+        # Calcular valor final CORRETAMENTE
         valor_final = valor_fipe - total_descontos
 
         return {
@@ -316,7 +268,7 @@ async def buscar_precos_pecas(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
-
+        
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
     try:
@@ -333,46 +285,34 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
+    # Função para processar cada peça individualmente
     async def processar_peca(peca):
         cache_key = f"{marca_nome}-{modelo_nome}-{ano_nome}-{peca}"
         if cache_key in peca_cache:
-            return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key], "tireSize": peca_cache[cache_key].get("tireSize", None)}
+            return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key]}
         
-        tire_size = None
-        # Verifica se é uma busca por pneu
-        if peca.lower().startswith("pneu") or peca.lower().startswith("pneus"):
-            # Busca a medida original do pneu
-            tire_info = await get_original_tire_size(marca_nome, modelo_nome, int(ano_nome))
-            if tire_info:
-                tire_size = tire_info.get("pneu_original")
-            
-            if tire_size:
-                termo_busca = f"{peca} {tire_size}".strip()
-            else:
-                termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
-        else:
-            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
-        
+        termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
         payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
         
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=20) as client:  # Timeout de 20 segundos
                 api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 dados_completos = response.json()
                 
-                if tire_size:
-                    dados_completos["tireSize"] = tire_size
+                # Armazena no cache
                 peca_cache[cache_key] = dados_completos
-                return {"sucesso": True, "peca": peca, "dados": dados_completos, "tireSize": tire_size}
+                return {"sucesso": True, "peca": peca, "dados": dados_completos}
                 
         except Exception as e:
             return {"sucesso": False, "peca": peca, "erro": str(e)}
     
+    # Processa todas as peças em paralelo
     tasks = [processar_peca(peca) for peca in pecas_selecionadas]
     resultados = await asyncio.gather(*tasks)
     
+    # Processa resultados
     for resultado in resultados:
         if not resultado["sucesso"]:
             relatorio.append({"item": resultado["peca"], "erro": resultado["erro"]})
@@ -389,12 +329,13 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         nomes = []
         precos_texto = []
 
-        modelo_keywords = modelo_nome.lower().split()[:2] if not resultado["peca"].lower().startswith("pneu") else []
+        modelo_keywords = modelo_nome.lower().split()[:2]  # Pega as duas primeiras palavras do modelo
 
-        for item in dados[:5]:
+        for item in dados[:5]:  # Limita a 5 itens
             titulo = item.get("eTituloProduto", "").lower()
             
-            if modelo_keywords and not any(kw in titulo for kw in modelo_keywords):
+            # Verifica se pelo menos uma palavra-chave do modelo está no título
+            if not any(kw in titulo for kw in modelo_keywords):
                 continue
 
             preco_str = item.get("novoPreco")
@@ -407,7 +348,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 links.append(item.get("zProdutoLink", ""))
                 imagens.append(item.get("imagemLink", ""))
                 nomes.append(item.get("eTituloProduto", ""))
-                precos_texto.append(preco_str)
+                precos_texto.append(preco_str)  
             except Exception:
                 continue
 
@@ -418,7 +359,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         preco_medio = round(sum(precos) / len(precos), 2)
         total_abatimento += preco_medio
 
-        relatorio_item = {
+        relatorio.append({
             "item": resultado["peca"],
             "preco_medio": preco_medio,
             "abatido": preco_medio,
@@ -426,10 +367,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             "imagens": imagens[:3],
             "nomes": nomes[:3],
             "precos": precos_texto[:3]
-        }
-        if resultado["tireSize"]:
-            relatorio_item["tireSize"] = resultado["tireSize"]
-
-        relatorio.append(relatorio_item)
+        })
 
     return relatorio, total_abatimento
