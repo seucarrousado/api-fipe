@@ -8,6 +8,7 @@ import os
 import asyncio
 from datetime import datetime
 import json
+from typing import Optional
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -40,7 +41,7 @@ app.add_middleware(
 )
 
 BASE_URL = "https://api.invertexto.com/v1/fipe"
-WHEEL_SIZE_URL = "https://api.wheel-size.com/v2/search/by_model/"
+WHEEL_SIZE_BASE = "https://api.wheel-size.com/v2"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
@@ -172,31 +173,61 @@ def calcular_desconto_km(km, valor_fipe, ano):
     except:
         return 0
 
-async def get_tire_specs(marca_nome, modelo_nome, ano_nome):
+async def get_original_tire_size(make: str, model: str, year: int) -> Optional[dict]:
+    """Busca o tamanho original do pneu usando a API Wheel Size"""
+    cache_key = f"tire-size|{make}|{model}|{year}"
+    if cache_key in peca_cache:
+        return peca_cache[cache_key]
+    
     try:
+        url = f"{WHEEL_SIZE_BASE}/modifications/"
+        params = {
+            'make': make.lower(),
+            'model': model.lower(),
+            'year': year,
+            'user_key': WHEEL_SIZE_TOKEN
+        }
         async with httpx.AsyncClient() as client:
-            params = {
-                "make": marca_nome.lower(),
-                "model": modelo_nome.lower(),
-                "year": ano_nome,
-                "key": WHEEL_SIZE_TOKEN
-            }
-            response = await client.get(WHEEL_SIZE_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            if not data or not data.get("data", []):
-                return None
-            
-            vehicle = data["data"][0]
-            tire_size = vehicle.get("tire", {}).get("size", None)
-            if not tire_size:
+            response = await client.get(url, params=params)
+            if response.status_code != 200:
+                logger.error(f"Erro na API Wheel Size: {response.status_code}")
                 return None
                 
-            return tire_size
+            data = response.json()
+            modificacoes = data.get("data", [])
+
+            for m in modificacoes:
+                wheels = m.get("wheels", [])
+                for w in wheels:
+                    if w.get("is_stock") and w.get("tire"):
+                        tire = w["tire"]
+                        width = tire.get("section_width")
+                        aspect = tire.get("aspect_ratio")
+                        rim = tire.get("rim_diameter")
+                        if width and aspect and rim:
+                            medida = f"{width}/{aspect} R{rim}"
+                            result = {
+                                "pneu_original": medida,
+                                "modification": m.get("name"),
+                                "slug": m.get("slug")
+                            }
+                            peca_cache[cache_key] = result
+                            return result
+            return None
     except Exception as e:
-        logger.error(f"Erro ao consultar Wheel Size API: {str(e)}")
+        logger.error(f"Erro ao buscar pneus: {str(e)}")
         return None
+
+@app.get("/pneu-do-modelo")
+async def get_pneu_por_modelo(
+    make: str = Query(..., example="fiat"),
+    model: str = Query(..., example="argo"),
+    year: int = Query(..., example=2022)
+):
+    result = await get_original_tire_size(make, model, year)
+    if result:
+        return result
+    return {"erro": "Nenhum pneu original encontrado"}
 
 @app.get("/pecas")
 async def buscar_precos_pecas(
@@ -308,11 +339,17 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key], "tireSize": peca_cache[cache_key].get("tireSize", None)}
         
         tire_size = None
+        # Verifica se é uma busca por pneu
         if peca.lower().startswith("pneu") or peca.lower().startswith("pneus"):
-            tire_size = await get_tire_specs(marca_nome, modelo_nome, ano_nome)
-            if not tire_size:
-                return {"sucesso": False, "peca": peca, "erro": "Não foi possível obter as dimensões do pneu."}
-            termo_busca = f"{peca} {tire_size}".strip()
+            # Busca a medida original do pneu
+            tire_info = await get_original_tire_size(marca_nome, modelo_nome, int(ano_nome))
+            if tire_info:
+                tire_size = tire_info.get("pneu_original")
+            
+            if tire_size:
+                termo_busca = f"{peca} {tire_size}".strip()
+            else:
+                termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
         else:
             termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
         
