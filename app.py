@@ -172,15 +172,17 @@ def calcular_desconto_km(km, valor_fipe, ano):
     except:
         return 0
 
-# Função corrigida para usar a API v2
+# Função corrigida para usar o formato correto da API v2
 async def get_tire_specifications(marca, modelo, ano):
     try:
-        # Formatar marca e modelo para a API
-        formatted_make = marca.lower().replace(" ", "_")
-        formatted_model = modelo.lower().replace(" ", "_")
+        # Formatar marca e modelo para a API - usar apenas a primeira palavra
+        formatted_make = marca.lower().split()[0].replace(" ", "_")
+        formatted_model = modelo.lower().split()[0].replace(" ", "_")
         
-        # URL atualizada para v2
+        # URL corrigida para v2 com formato simplificado
         url = f"https://api.wheel-size.com/v2/models/{formatted_make}/{formatted_model}/?user_key={WHEEL_SIZE_TOKEN}"
+        
+        logger.info(f"Chamando Wheel-Size API: {url}")
         
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
@@ -293,7 +295,12 @@ async def buscar_precos_pecas(
         # Obter especificações de pneus se necessário
         tire_specs = None
         if any("pneus" in p for p in lista_pecas):
+            logger.info(f"Buscando especificações de pneus para: {marca_nome} {modelo_nome} {ano_base}")
             tire_specs = await get_tire_specifications(marca_nome, modelo_nome, ano_base)
+            if tire_specs:
+                logger.info(f"Medidas encontradas: {tire_specs['tireSize']}")
+            else:
+                logger.warning("Não foram encontradas medidas de pneus")
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_base, lista_pecas, tire_specs
@@ -319,6 +326,7 @@ async def buscar_precos_pecas(
             "relatorio_detalhado": relatorio,
         }
     except Exception as e:
+        logger.error(f"Erro na consulta de peças: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
         
 @app.get("/cidades/{uf}")
@@ -372,7 +380,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             continue
             
         dados = resultado["dados"]
-        if not dados:
+        if not dados or not isinstance(dados, list):
             relatorio.append({"item": resultado["peca"], "erro": "Nenhum resultado encontrado."})
             continue
 
