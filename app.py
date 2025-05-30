@@ -185,17 +185,14 @@ async def get_tire_specs(marca_nome, modelo_nome, ano_nome):
             response.raise_for_status()
             data = response.json()
             
-            # Assuming the API returns a list of vehicles with tire specs
             if not data or not data.get("data", []):
                 return None
             
-            # Extract the first available tire size (simplified, adjust based on actual API response)
             vehicle = data["data"][0]
             tire_size = vehicle.get("tire", {}).get("size", None)
             if not tire_size:
                 return None
                 
-            # Format tire size (e.g., "205/55R16")
             return tire_size
     except Exception as e:
         logger.error(f"Erro ao consultar Wheel Size API: {str(e)}")
@@ -308,14 +305,14 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     async def processar_peca(peca):
         cache_key = f"{marca_nome}-{modelo_nome}-{ano_nome}-{peca}"
         if cache_key in peca_cache:
-            return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key]}
+            return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key], "tireSize": peca_cache[cache_key].get("tireSize", None)}
         
-        # Special handling for tires
-        if peca.lower() == "pneu":
+        tire_size = None
+        if peca.lower().startswith("pneu") or peca.lower().startswith("pneus"):
             tire_size = await get_tire_specs(marca_nome, modelo_nome, ano_nome)
             if not tire_size:
                 return {"sucesso": False, "peca": peca, "erro": "Não foi possível obter as dimensões do pneu."}
-            termo_busca = f"pneu {tire_size}".strip()
+            termo_busca = f"{peca} {tire_size}".strip()
         else:
             termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
         
@@ -328,8 +325,10 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 response.raise_for_status()
                 dados_completos = response.json()
                 
+                if tire_size:
+                    dados_completos["tireSize"] = tire_size
                 peca_cache[cache_key] = dados_completos
-                return {"sucesso": True, "peca": peca, "dados": dados_completos}
+                return {"sucesso": True, "peca": peca, "dados": dados_completos, "tireSize": tire_size}
                 
         except Exception as e:
             return {"sucesso": False, "peca": peca, "erro": str(e)}
@@ -353,7 +352,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         nomes = []
         precos_texto = []
 
-        modelo_keywords = modelo_nome.lower().split()[:2] if resultado["peca"].lower() != "pneu" else []
+        modelo_keywords = modelo_nome.lower().split()[:2] if not resultado["peca"].lower().startswith("pneu") else []
 
         for item in dados[:5]:
             titulo = item.get("eTituloProduto", "").lower()
@@ -382,7 +381,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         preco_medio = round(sum(precos) / len(precos), 2)
         total_abatimento += preco_medio
 
-        relatorio.append({
+        relatorio_item = {
             "item": resultado["peca"],
             "preco_medio": preco_medio,
             "abatido": preco_medio,
@@ -390,6 +389,10 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             "imagens": imagens[:3],
             "nomes": nomes[:3],
             "precos": precos_texto[:3]
-        })
+        }
+        if resultado["tireSize"]:
+            relatorio_item["tireSize"] = resultado["tireSize"]
+
+        relatorio.append(relatorio_item)
 
     return relatorio, total_abatimento
