@@ -241,30 +241,22 @@ async def buscar_precos_pecas(
                 cache[cache_key] = valor_fipe
 
         # Substituir "pneu" por medida real consultada via Wheel-Size
-        if any("pneu" in p.lower() for p in lista_pecas):
-            medida_pneu = None
-            try:
-                # ALTERAÇÃO CRÍTICA: usando a função auxiliar diretamente
-                resultado_pneu = await obter_pneu_original(
-                    marca=marca_nome, 
-                    modelo=modelo_nome, 
-                    ano=int(ano_codigo.split('-')[0])
-                )
-                if "pneu_original" in resultado_pneu:
-                    medida_pneu = resultado_pneu["pneu_original"]
-                else:
-                    logger.warning(f"[WHEEL-SIZE] Pneu não encontrado: {resultado_pneu.get('erro', '')}")
-            except Exception as e:
-                logger.error(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
+                if any("pneu" in p.lower() for p in lista_pecas):
+                    try:
+                        resultado_pneu = await get_pneu_original(marca=marca_nome, modelo=modelo_nome, ano=int(ano_codigo.split('-')[0]))
+                        medida_pneu = resultado_pneu.get("pneu_original")
+                    except Exception as e:
+                        logger.warning(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
+                        medida_pneu = None
 
-            nova_lista = []
-            for peca in lista_pecas:
-                if "pneu" in peca.lower() and medida_pneu:
-                    qtd = "2" if "2" in peca else "4"
-                    nova_lista.append(f"{qtd} pneus {medida_pneu}")
-                else:
-                    nova_lista.append(peca)
-            lista_pecas = nova_lista
+                    nova_lista = []
+                    for peca in lista_pecas:
+                        if "pneu" in peca.lower() and medida_pneu:
+                            qtd = "2" if "2" in peca or "dois" in peca else "4"
+                            nova_lista.append(f"{qtd} pneus {medida_pneu}")
+                        else:
+                            nova_lista.append(peca)
+                    lista_pecas = nova_lista
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
