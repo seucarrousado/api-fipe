@@ -416,14 +416,7 @@ async def get_pneu_original(
     ano: int = Query(..., example=2022)
 ):
     """
-    Busca a medida do pneu original de fábrica para um modelo específico
-    usando a Wheel-Size API com slugs corretos.
-    
-    Retorna: {
-        "pneu_original": "185/60 R15",
-        "modification": "1.3 FireFly",
-        "slug": "0d57f9ae71"
-    }
+    Usa o slug obtido por get_slug_por_modelo() e retorna a medida do pneu original.
     """
     if not WHEEL_SIZE_TOKEN:
         raise HTTPException(
@@ -432,24 +425,11 @@ async def get_pneu_original(
         )
 
     try:
-        # 1. Buscar o slug correto da modificação via search/by_model
-        search_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+        slug = await get_slug_por_modelo(marca, modelo, ano)
+        if not slug:
+            return {"erro": "Slug de modificação não encontrado para o modelo"}
 
-        async with httpx.AsyncClient() as client:
-            search_response = await client.get(search_url)
-            search_response.raise_for_status()
-            search_data = search_response.json()
-
-        if not search_data.get("data"):
-            return {"erro": "Modelo não encontrado na base da Wheel-Size"}
-
-        # 2. Pega o primeiro slug de modificação válida
-        modification_slug = search_data["data"][0].get("modification_slug")
-        if not modification_slug:
-            return {"erro": "Slug de modificação não encontrado"}
-
-        # 3. Consulta o modelo com base no slug
-        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&modification={modification_slug}&user_key={WHEEL_SIZE_TOKEN}"
+        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&modification={slug}&user_key={WHEEL_SIZE_TOKEN}"
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
@@ -469,18 +449,3 @@ async def get_pneu_original(
                         medida = f"{width}/{aspect} R{rim}"
                         return {
                             "pneu_original": medida,
-                            "modification": mod.get("name"),
-                            "slug": mod.get("slug")
-                        }
-
-        return {"erro": "Nenhum pneu original encontrado para o modelo"}
-
-    except httpx.HTTPStatusError as e:
-        detail = f"Erro na Wheel-Size API: {e.response.status_code} - {e.response.text}"
-        raise HTTPException(status_code=502, detail=detail)
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao consultar pneu original: {str(e)}"
-        )
