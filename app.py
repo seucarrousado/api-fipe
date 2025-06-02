@@ -8,6 +8,8 @@ import os
 import asyncio
 from datetime import datetime
 import json
+import re
+import unicodedata
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -48,6 +50,8 @@ WHEEL_SIZE_BASE = "https://api.wheel-size.com/v2"  # Base URL da Wheel-Size
 
 cache = TTLCache(maxsize=100, ttl=3600)  # Cache para FIPE
 peca_cache = TTLCache(maxsize=500, ttl=86400)  # Cache para peças (24 horas)
+slug_cache = TTLCache(maxsize=100, ttl=86400)  # Cache para slugs (24 horas)
+wheel_cache = TTLCache(maxsize=50, ttl=86400)  # Cache para medidas de pneus (24 horas)
 
 class FipeQuery(BaseModel):
     marca: str
@@ -60,6 +64,63 @@ class FipeQuery(BaseModel):
         if not v.strip():
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
+
+def normalizar_slug(texto: str) -> str:
+    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
+    texto = texto.lower().strip()
+    texto = re.sub(r'[\s_]+', '-', texto)
+    texto = re.sub(r'[^a-z0-9\-]', '', texto)
+    return texto
+
+async def get_make_slug(make_name: str) -> str:
+    cache_key = f"make_slug:{make_name}"
+    if cache_key in slug_cache:
+        return slug_cache[cache_key]
+    
+    try:
+        url = f"{WHEEL_SIZE_BASE}/makes/?user_key={WHEEL_SIZE_TOKEN}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            makes = response.json()
+            
+            for make in makes:
+                if normalizar_slug(make['name']) == normalizar_slug(make_name):
+                    slug_cache[cache_key] = make['slug']
+                    return make['slug']
+        
+        # Fallback: normalização direta
+        slug_normalizado = normalizar_slug(make_name)
+        slug_cache[cache_key] = slug_normalizado
+        return slug_normalizado
+    except Exception as e:
+        logger.error(f"Erro ao buscar slug da marca {make_name}: {str(e)}")
+        return normalizar_slug(make_name)
+
+async def get_model_slug(make_slug: str, model_name: str) -> str:
+    cache_key = f"model_slug:{make_slug}:{model_name}"
+    if cache_key in slug_cache:
+        return slug_cache[cache_key]
+    
+    try:
+        url = f"{WHEEL_SIZE_BASE}/models/?make={make_slug}&user_key={WHEEL_SIZE_TOKEN}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            models = response.json()
+            
+            for model in models:
+                if normalizar_slug(model['name']) == normalizar_slug(model_name):
+                    slug_cache[cache_key] = model['slug']
+                    return model['slug']
+        
+        # Fallback: normalização direta
+        slug_normalizado = normalizar_slug(model_name)
+        slug_cache[cache_key] = slug_normalizado
+        return slug_normalizado
+    except Exception as e:
+        logger.error(f"Erro ao buscar slug do modelo {model_name}: {str(e)}")
+        return normalizar_slug(model_name)
 
 @app.get("/marcas")
 async def listar_marcas():
@@ -242,29 +303,35 @@ async def buscar_precos_pecas(
 
         # Substituir "pneu" por medida real consultada via Wheel-Size
         if any("pneu" in p.lower() for p in lista_pecas):
-            logger.info("[DEBUG] Iniciando substituição de pneus com medida real")
-            logger.info(f"[DEBUG] Peças recebidas: {lista_pecas}")
+            logger.info(f"[PNEU] Iniciando substituição de pneus para {marca_nome} {modelo_nome} {ano_codigo}")
+            
+            try:
+                ano_int = int(ano_codigo.split('-')[0])
+            except:
+                ano_int = datetime.now().year
+                logger.warning(f"[PNEU] Falha ao converter ano, usando {ano_int} como fallback")
             
             try:
                 medida_pneu = await obter_medida_pneu_por_slug(
                     marca=marca_nome, 
                     modelo=modelo_nome, 
-                    ano=int(ano_codigo.split('-')[0]))
+                    ano=ano_int)
                 
                 if medida_pneu:
-                    logger.info(f"[DEBUG] Medida do pneu obtida: {medida_pneu}")
-            except Exception as e:
-                logger.warning(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
-                medida_pneu = None
-
-            nova_lista = []
-            for peca in lista_pecas:
-                if "pneu" in peca.lower() and medida_pneu:
-                    qtd = "2" if "2" in peca or "dois" in peca else "4"
-                    nova_lista.append(f"{qtd} pneus {medida_pneu}")
+                    logger.info(f"[PNEU] Medida obtida: {medida_pneu}")
+                    nova_lista = []
+                    for peca in lista_pecas:
+                        if "pneu" in peca.lower():
+                            # Detecta quantidade (2 ou 4 pneus)
+                            qtd = "4" if any(k in peca.lower() for k in ["4", "quatro", "jogo"]) else "2"
+                            nova_lista.append(f"{qtd} pneus {medida_pneu}")
+                        else:
+                            nova_lista.append(peca)
+                    lista_pecas = nova_lista
                 else:
-                    nova_lista.append(peca)
-            lista_pecas = nova_lista
+                    logger.warning("[PNEU] Medida não encontrada. Mantendo termo original.")
+            except Exception as e:
+                logger.error(f"[PNEU] Erro crítico: {str(e)}")
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
@@ -394,87 +461,84 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
     return relatorio, total_abatimento
 
-# =============================================================================
-# FUNÇÃO AUXILIAR PARA OBTER SLUG (USO INTERNO)
-# =============================================================================
-async def get_slug_por_modelo(marca: str, modelo: str, ano: int):
-    """
-    Consulta a Wheel-Size para encontrar o slug de modificação de um carro.
-    """
-    if not WHEEL_SIZE_TOKEN:
-        return None
-
+async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
+    cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
+    if cache_key in wheel_cache:
+        return wheel_cache[cache_key]
+    
     try:
-        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+        # Obter slugs corretos
+        make_slug = await get_make_slug(marca)
+        model_slug = await get_model_slug(make_slug, modelo)
+        
+        if not make_slug or not model_slug:
+            logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
+            return ""
+        
+        # Buscar modificações disponíveis
+        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-        if not data.get("data"):
-            return None
-        return data["data"][0].get("modification_slug")
-    except:
-        return None
-
-# =============================================================================
-# NOVA FUNÇÃO AUXILIAR PARA OBTER MEDIDA DO PNEU
-# =============================================================================
-async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int):
-    """
-    Função auxiliar para buscar a medida do pneu original (uso interno)
-    Retorna string com a medida ou None em caso de erro
-    """
-    if not WHEEL_SIZE_TOKEN:
-        return None
-
-    try:
-        slug = await get_slug_por_modelo(marca, modelo, ano)
-        if not slug:
-            return None
-
-        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&modification={slug}&user_key={WHEEL_SIZE_TOKEN}"
-
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-
-        for mod in data.get("data", []):
-            for wheel in mod.get("wheels", []):
-                if wheel.get("is_stock") and "tire" in wheel:
-                    tire = wheel["tire"]
-                    width = tire.get("section_width")
-                    aspect = tire.get("aspect_ratio")
-                    rim = tire.get("rim_diameter")
-
-                    if width and aspect and rim:
-                        return f"{width}/{aspect} R{rim}"
-
-        return None
-
+            mod_response = await client.get(mod_url)
+            mod_response.raise_for_status()
+            modifications = mod_response.json()
+            
+            if not modifications:
+                logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
+                return ""
+            
+            # Usar primeira modificação disponível
+            mod_slug = modifications[0]['slug']
+            
+            # Buscar detalhes do veículo
+            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&user_key={WHEEL_SIZE_TOKEN}"
+            detail_response = await client.get(detail_url)
+            detail_response.raise_for_status()
+            vehicle_data = detail_response.json()
+            
+            if not vehicle_data.get("data"):
+                logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
+                return ""
+            
+            for mod in vehicle_data["data"]:
+                for wheel in mod.get("wheels", []):
+                    if wheel.get("is_stock") and "tire" in wheel:
+                        tire = wheel["tire"]
+                        width = tire.get("section_width")
+                        aspect = tire.get("aspect_ratio")
+                        rim = tire.get("rim_diameter")
+                        
+                        if all([width, aspect, rim]):
+                            medida = f"{width}/{aspect} R{rim}"
+                            wheel_cache[cache_key] = medida
+                            return medida
+        
+        return ""
     except Exception as e:
-        logger.warning(f"[WHEEL] Erro ao consultar medida pneu: {str(e)}")
-        return None
+        logger.error(f"[WHEEL] Erro: {str(e)}")
+        return ""
 
-# =============================================================================
-# ENDPOINT PARA BUSCAR PNEU ORIGINAL DO MODELO
-# =============================================================================
 @app.get("/pneu-original")
 async def get_pneu_original(
     marca: str = Query(..., example="fiat"),
     modelo: str = Query(..., example="argo"),
     ano: int = Query(..., example=2022)
 ):
-    """
-    Busca a medida do pneu original de fábrica para um modelo específico
-    usando a Wheel-Size API com slugs corretos.
-    """
-    medida_pneu = await obter_medida_pneu_por_slug(marca, modelo, ano)
-    
-    if medida_pneu:
-        return {"pneu_original": medida_pneu}
-    else:
+    try:
+        logger.info(f"[PNEU-EP] Buscando pneu para {marca}/{modelo}/{ano}")
+        medida_pneu = await obter_medida_pneu_por_slug(marca, modelo, ano)
+        
+        if medida_pneu:
+            return {"pneu_original": medida_pneu}
+        else:
+            logger.error(f"[PNEU-EP] Não encontrado: {marca}/{modelo}/{ano}")
+            raise HTTPException(
+                status_code=404,
+                detail="Medida do pneu não encontrada para o modelo especificado"
+            )
+            
+    except Exception as e:
+        logger.error(f"[PNEU-EP] Erro fatal: {str(e)}")
         raise HTTPException(
-            status_code=404,
-            detail="Medida do pneu não encontrada para o modelo especificado"
+            status_code=500,
+            detail="Erro interno ao processar solicitação"
         )
