@@ -11,25 +11,6 @@ import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
-async def get_slug_por_modelo(marca: str, modelo: str, ano: int):
-    """
-    Consulta a Wheel-Size para encontrar o slug de modificação de um carro
-    baseado na marca, modelo e ano. Retorna o primeiro slug encontrado.
-    """
-    if not WHEEL_SIZE_TOKEN:
-        return None
-
-    try:
-        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-            if not data.get("data"):
-                return None
-            return data["data"][0].get("modification_slug")
-    except:
-        return None
 
 app = FastAPI()
 
@@ -263,11 +244,18 @@ async def buscar_precos_pecas(
         if any("pneu" in p.lower() for p in lista_pecas):
             medida_pneu = None
             try:
-                resultado_pneu = await get_pneu_original(marca=marca_nome, modelo=modelo_nome, ano=int(ano_codigo.split('-')[0]))
+                # ALTERAÇÃO CRÍTICA: usando a função auxiliar diretamente
+                resultado_pneu = await obter_pneu_original(
+                    marca=marca_nome, 
+                    modelo=modelo_nome, 
+                    ano=int(ano_codigo.split('-')[0])
+                )
                 if "pneu_original" in resultado_pneu:
                     medida_pneu = resultado_pneu["pneu_original"]
+                else:
+                    logger.warning(f"[WHEEL-SIZE] Pneu não encontrado: {resultado_pneu.get('erro', '')}")
             except Exception as e:
-                logger.warning(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
+                logger.error(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
 
             nova_lista = []
             for peca in lista_pecas:
@@ -407,22 +395,14 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     return relatorio, total_abatimento
 
 # =============================================================================
-# ENDPOINT PARA BUSCAR PNEU ORIGINAL DO MODELO
+# FUNÇÃO AUXILIAR PARA BUSCAR PNEU ORIGINAL (USO INTERNO)
 # =============================================================================
-@app.get("/pneu-original")
-async def get_pneu_original(
-    marca: str = Query(..., example="fiat"),
-    modelo: str = Query(..., example="argo"),
-    ano: int = Query(..., example=2022)
-):
+async def obter_pneu_original(marca: str, modelo: str, ano: int):
     """
-    Usa o slug obtido por get_slug_por_modelo() e retorna a medida do pneu original.
+    Função auxiliar para buscar o pneu original do modelo (uso interno)
     """
     if not WHEEL_SIZE_TOKEN:
-        raise HTTPException(
-            status_code=500,
-            detail="Token da Wheel-Size não configurado no ambiente"
-        )
+        return {"erro": "Token da Wheel-Size não configurado no ambiente"}
 
     try:
         slug = await get_slug_por_modelo(marca, modelo, ano)
@@ -456,7 +436,54 @@ async def get_pneu_original(
         return {"erro": "Nenhum pneu original encontrado para o modelo"}
 
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Erro Wheel-Size: {e.response.status_code} - {e.response.text}")
+        return {"erro": f"Erro Wheel-Size: {e.response.status_code} - {e.response.text}"}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao consultar pneu original: {str(e)}")
+        return {"erro": f"Erro ao consultar pneu original: {str(e)}"}
+
+# =============================================================================
+# FUNÇÃO AUXILIAR PARA OBTER SLUG (USO INTERNO)
+# =============================================================================
+async def get_slug_por_modelo(marca: str, modelo: str, ano: int):
+    """
+    Consulta a Wheel-Size para encontrar o slug de modificação de um carro
+    baseado na marca, modelo e ano. Retorna o primeiro slug encontrado.
+    """
+    if not WHEEL_SIZE_TOKEN:
+        return None
+
+    try:
+        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("data"):
+                return None
+            return data["data"][0].get("modification_slug")
+    except:
+        return None
+
+# =============================================================================
+# ENDPOINT PARA BUSCAR PNEU ORIGINAL DO MODELO (MANTIDO PARA CHAMADAS EXTERNAS)
+# =============================================================================
+@app.get("/pneu-original")
+async def get_pneu_original(
+    marca: str = Query(..., example="fiat"),
+    modelo: str = Query(..., example="argo"),
+    ano: int = Query(..., example=2022)
+):
+    """
+    Endpoint público para consulta de pneu original
+    """
+    result = await obter_pneu_original(marca, modelo, ano)
+    if "erro" in result:
+        raise HTTPException(
+            status_code=500,
+            detail=result["erro"]
+        )
+    return result
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
