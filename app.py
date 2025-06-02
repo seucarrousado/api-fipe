@@ -491,7 +491,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             mod_slug = modifications[0]['slug']
             
             # Buscar detalhes do veículo
-            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&user_key={WHEEL_SIZE_TOKEN}"
+            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
             detail_response = await client.get(detail_url)
             detail_response.raise_for_status()
             vehicle_data = detail_response.json()
