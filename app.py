@@ -23,6 +23,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("calculadora_fipe")
 
@@ -108,7 +109,7 @@ async def get_model_slug(make_slug: str, model_name: str) -> str:
             response = await client.get(url)
             response.raise_for_status()
             body = response.json()
-            models = body.get("data", [])  # ✅ Corrigido aqui
+            models = body.get("data", [])
 
         for model in models:
             if normalizar_slug(model['name']) == normalizar_slug(model_name):
@@ -303,7 +304,7 @@ async def buscar_precos_pecas(
 
         # Substituir "pneu" por medida real consultada via Wheel-Size
         logger.info(f"[DEBUG] Lista de peças recebida: {lista_pecas}")
-        if True:
+        if any("pneu" in p.lower() for p in lista_pecas):
             logger.info(f"[PNEU] Iniciando substituição de pneus para {marca_nome} {modelo_nome} {ano_codigo}")
             
             try:
@@ -363,7 +364,7 @@ async def buscar_precos_pecas(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
-        
+
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
     try:
@@ -481,12 +482,12 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             mod_response.raise_for_status()
             modifications = mod_response.json()
 
-            if not isinstance(modifications, list) or not modifications:
+            if not isinstance(modifications.get("data", []), list) or not modifications.get("data", []):
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
 
             # Verificar todas as modificações em busca de pneus válidos
-            for mod in modifications:
+            for mod in modifications.get("data", []):
                 mod_slug = mod.get("slug")
                 if not mod_slug:
                     continue
@@ -496,7 +497,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 detail_response.raise_for_status()
                 vehicle_data = detail_response.json()
 
-                data_list = vehicle_data.get("data")
+                data_list = vehicle_data.get("data", [])
                 if not isinstance(data_list, list):
                     continue
 
@@ -519,47 +520,6 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         logger.warning(f"[WHEEL] Nenhuma medida encontrada para {marca}/{modelo}/{ano}")
         return ""
 
-    except Exception as e:
-        logger.error(f"[WHEEL] Erro: {str(e)}")
-        return ""
-
-            
-            # Buscar detalhes do veículo com região correta (ladm = América Latina)
-            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
-            detail_response = await client.get(detail_url)
-            detail_response.raise_for_status()
-            vehicle_data = detail_response.json()
-        
-        if not isinstance(vehicle_data, list) or len(vehicle_data) == 0:
-            logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
-            return ""
-
-        pneus_validos = []
-
-        for mod in vehicle_data["data"]:
-            for wheel in mod.get("wheels", []):
-                if wheel.get("is_stock") and "tire" in wheel:
-                    tire = wheel["tire"]
-                    width = tire.get("section_width")
-                    aspect = tire.get("aspect_ratio")
-                    rim = tire.get("rim_diameter")
-
-                    if all([width, aspect, rim]):
-                        pneus_validos.append({
-                            "medida": f"{width}/{aspect} R{rim}",
-                            "aro": rim
-                        })
-
-        # Ordenar por aro para priorizar os menores (ou altere a lógica se quiser priorizar maiores)
-        pneus_validos.sort(key=lambda x: x["aro"])
-
-        if pneus_validos:
-            medida = pneus_validos[0]["medida"]
-            wheel_cache[cache_key] = medida
-            return medida
-
-        return ""
-    
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
         return ""
