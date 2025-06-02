@@ -84,7 +84,7 @@ async def get_make_slug(make_name: str) -> str:
             response.raise_for_status()
             makes = response.json()
             
-            for make in makes:
+            for make in makes.get("data", []):
                 if normalizar_slug(make['name']) == normalizar_slug(make_name):
                     slug_cache[cache_key] = make['slug']
                     return make['slug']
