@@ -197,7 +197,7 @@ async def buscar_precos_pecas(
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         
-        # ADICIONAR PEÇAS EXTRAS SE EXISTIREM
+        # Adicionar peças extras se existirem
         if peca_extra and peca_extra.strip():
             lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
             
@@ -257,12 +257,7 @@ async def buscar_precos_pecas(
                     nova_lista.append(f"{qtd} pneus {medida_pneu}")
                 else:
                     nova_lista.append(peca)
-
             lista_pecas = nova_lista
-
-            except Exception as e:
-                logger.warning(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
-
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
@@ -304,7 +299,7 @@ async def get_cidades_por_estado(uf: str):
                 return estado["cidades"]
         return []
     except Exception as e:
-        return {"erro": f"Erro ao carregar cidades: {str(e)}"}
+        return {"erro": f"Erro ao carregar cidades: {str(e)}")
 
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
@@ -314,15 +309,9 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         cache_key = f"{marca_nome}-{modelo_nome}-{ano_nome}-{peca}"
         if cache_key in peca_cache:
             return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key]}
-        if "pneu" in peca.lower():
-            medida = await buscar_medida_pneu(marca_nome, modelo_nome, ano_nome)
-            if medida:
-                qtd = "2" if "2" in peca else "4"
-                termo_busca = f"{qtd} pneus {medida}"
-            else:
-                termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
-        else:
-            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+        
+        termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+        payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
         
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -338,7 +327,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
     tasks = [processar_peca(peca) for peca in pecas_selecionadas]
     resultados = await asyncio.gather(*tasks)
-
+    
     for resultado in resultados:
         if not resultado["sucesso"]:
             relatorio.append({"item": resultado["peca"], "erro": resultado["erro"]})
