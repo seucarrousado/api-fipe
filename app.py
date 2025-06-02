@@ -462,69 +462,87 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
     return relatorio, total_abatimento
 
-async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
-    cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
-    if cache_key in wheel_cache:
-        return wheel_cache[cache_key]
+    async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
+        cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
+        if cache_key in wheel_cache:
+            return wheel_cache[cache_key]
 
-    try:
-        make_slug = await get_make_slug(marca)
-        model_slug = await get_model_slug(make_slug, modelo)
+        try:
+            # Usar apenas o slug base do modelo (ex: "argo")
+            make_slug = await get_make_slug(marca)
+            modelo_base = modelo.split()[0]  # Pega só "Argo" de "Argo 1.0 6V Flex"
+            model_slug = await get_model_slug(make_slug, modelo_base)
 
-        if not make_slug or not model_slug:
-            logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
-            return ""
+            if not make_slug or not model_slug:
+                logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
+                return ""
 
-        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
-        async with httpx.AsyncClient() as client:
-            mod_response = await client.get(mod_url)
-            mod_response.raise_for_status()
-            modifications = mod_response.json()
+            # Buscar modificações disponíveis
+            mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+            async with httpx.AsyncClient() as client:
+                mod_response = await client.get(mod_url)
+                mod_response.raise_for_status()
+                modifications = mod_response.json()
 
             if not isinstance(modifications, list) or not modifications:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
 
-            # Verificar todas as modificações em busca de pneus válidos
+            # Tentar encontrar modificação que combine com o nome completo do modelo
+            modelo_normalizado = normalizar_slug(modelo)
+            mod_slug = None
             for mod in modifications:
-                mod_slug = mod.get("slug")
-                if not mod_slug:
-                    continue
+                if normalizar_slug(mod.get("name", "")) in modelo_normalizado or normalizar_slug(mod.get("slug", "")) in modelo_normalizado:
+                    mod_slug = mod["slug"]
+                    break
 
-                detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+            # Se não encontrar match exato, usa a primeira
+            if not mod_slug:
+                mod_slug = modifications[0]["slug"]
+
+            # Buscar detalhes do veículo com a modificação correta
+            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+            async with httpx.AsyncClient() as client:
                 detail_response = await client.get(detail_url)
                 detail_response.raise_for_status()
                 vehicle_data = detail_response.json()
 
-                data_list = vehicle_data.get("data")
-                if not isinstance(data_list, list):
-                    continue
+            if not isinstance(vehicle_data, dict) or "data" not in vehicle_data:
+                logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
+                return ""
 
-                for mod_data in data_list:
-                    if not isinstance(mod_data, dict):
-                        continue
+            pneus_validos = []
 
-                    for wheel in mod_data.get("wheels", []):
-                        if wheel.get("is_stock") and "tire" in wheel:
-                            tire = wheel["tire"]
-                            width = tire.get("section_width")
-                            aspect = tire.get("aspect_ratio")
-                            rim = tire.get("rim_diameter")
+            for mod in vehicle_data["data"]:
+                for wheel in mod.get("wheels", []):
+                    if wheel.get("is_stock") and "tire" in wheel:
+                        tire = wheel["tire"]
+                        width = tire.get("section_width")
+                        aspect = tire.get("aspect_ratio")
+                        rim = tire.get("rim_diameter")
 
-                            if all([width, aspect, rim]):
-                                medida = f"{width}/{aspect} R{rim}"
-                                wheel_cache[cache_key] = medida
-                                return medida
+                        if all([width, aspect, rim]):
+                            pneus_validos.append({
+                                "medida": f"{width}/{aspect} R{rim}",
+                                "aro": rim
+                            })
 
-        logger.warning(f"[WHEEL] Nenhuma medida encontrada para {marca}/{modelo}/{ano}")
-        return ""
+            pneus_validos.sort(key=lambda x: x["aro"])
 
-    except Exception as e:
-        logger.error(f"[WHEEL] Erro: {str(e)}")
-        return ""
+            if pneus_validos:
+                medida = pneus_validos[0]["medida"]
+                wheel_cache[cache_key] = medida
+                return medida
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"[WHEEL] Erro: {str(e)}")
+            return ""
+
             
-@app.get("/pneu-original")
-async def get_pneu_original(
+    @app.get("/pneu-original")
+    async def get_pneu_original(
     marca: str = Query(..., example="fiat"),
     modelo: str = Query(..., example="argo"),
     ano: int = Query(..., example=2022)
