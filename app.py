@@ -302,7 +302,8 @@ async def buscar_precos_pecas(
                 cache[cache_key] = valor_fipe
 
         # Substituir "pneu" por medida real consultada via Wheel-Size
-        if any("pneu" in p.lower() for p in lista_pecas):
+        logger.info(f"[DEBUG] Lista de peças recebida: {lista_pecas}")
+        if True:
             logger.info(f"[PNEU] Iniciando substituição de pneus para {marca_nome} {modelo_nome} {ano_codigo}")
             
             try:
