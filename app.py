@@ -495,7 +495,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             detail_response.raise_for_status()
             vehicle_data = detail_response.json()
         
-        if not vehicle_data.get("data"):
+        if not isinstance(vehicle_data, list) or len(vehicle_data) == 0:
             logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
             return ""
 
