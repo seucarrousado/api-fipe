@@ -107,14 +107,14 @@ async def get_model_slug(make_slug: str, model_name: str) -> str:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
-            models = response.json()
-            
-            for model in models:
-                if normalizar_slug(model['name']) == normalizar_slug(model_name):
-                    slug_cache[cache_key] = model['slug']
-                    return model['slug']
+            body = response.json()
+            models = body.get("data", [])  # ✅ Corrigido aqui
+
+        for model in models:
+            if normalizar_slug(model['name']) == normalizar_slug(model_name):
+                slug_cache[cache_key] = model['slug']
+                return model['slug']
         
-        # Fallback: normalização direta
         slug_normalizado = normalizar_slug(model_name)
         slug_cache[cache_key] = slug_normalizado
         return slug_normalizado
