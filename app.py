@@ -240,6 +240,23 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
+        # Substituir "pneu" por medida real consultada via Wheel-Size
+        if any("pneu" in p.lower() for p in lista_pecas):
+            try:
+                resultado_pneu = await get_pneu_original(marca=marca_nome, modelo=modelo_nome, ano=int(ano_codigo.split('-')[0]))
+                if "pneu_original" in resultado_pneu:
+                    medida_pneu = resultado_pneu["pneu_original"]
+                    nova_lista = []
+                    for peca in lista_pecas:
+                        if "pneu" in peca.lower():
+                            nova_lista.append(f"pneu {medida_pneu}")
+                        else:
+                            nova_lista.append(peca)
+                    lista_pecas = nova_lista
+            except Exception as e:
+                logger.warning(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
+
+
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
         )
@@ -336,8 +353,11 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             titulo = item.get("eTituloProduto", "").lower()
             
             # Verifica se pelo menos uma palavra-chave do modelo está no título
-            if not any(kw in titulo for kw in modelo_keywords):
-                continue
+            if "/" in resultado["peca"] and "r" in resultado["peca"].lower():
+                pass  # Não aplica filtro por modelo
+            else:
+                if not any(kw in titulo for kw in modelo_keywords):
+                    continue
 
             preco_str = item.get("novoPreco")
             if not preco_str:
