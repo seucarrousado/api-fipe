@@ -303,7 +303,6 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    # Função para processar cada peça individualmente
     async def processar_peca(peca):
         cache_key = f"{marca_nome}-{modelo_nome}-{ano_nome}-{peca}"
         if cache_key in peca_cache:
@@ -313,29 +312,25 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
         
         try:
-            async with httpx.AsyncClient(timeout=20) as client:  # Timeout de 20 segundos
+            async with httpx.AsyncClient(timeout=20) as client:
                 api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 dados_completos = response.json()
                 
-                # Armazena no cache
                 peca_cache[cache_key] = dados_completos
                 return {"sucesso": True, "peca": peca, "dados": dados_completos}
-                
         except Exception as e:
             return {"sucesso": False, "peca": peca, "erro": str(e)}
-    
-    # Processa todas as peças em paralelo
+
     tasks = [processar_peca(peca) for peca in pecas_selecionadas]
     resultados = await asyncio.gather(*tasks)
-    
-    # Processa resultados
+
     for resultado in resultados:
         if not resultado["sucesso"]:
             relatorio.append({"item": resultado["peca"], "erro": resultado["erro"]})
             continue
-            
+
         dados = resultado["dados"]
         if not dados:
             relatorio.append({"item": resultado["peca"], "erro": "Nenhum resultado encontrado."})
@@ -347,17 +342,15 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         nomes = []
         precos_texto = []
 
-        modelo_keywords = modelo_nome.lower().split()[:2]  # Pega as duas primeiras palavras do modelo
+        termo_minusculo = resultado["peca"].lower()
+        is_pneu_com_medida = "pneu" in termo_minusculo and any(c.isdigit() for c in termo_minusculo)
+        modelo_keywords = [] if is_pneu_com_medida else modelo_nome.lower().split()[:2]
 
-        for item in dados[:5]:  # Limita a 5 itens
+        for item in dados[:5]:
             titulo = item.get("eTituloProduto", "").lower()
-            
-            # Verifica se pelo menos uma palavra-chave do modelo está no título
-            if "/" in resultado["peca"] and "r" in resultado["peca"].lower():
-                pass  # Não aplica filtro por modelo
-            else:
-                if not any(kw in titulo for kw in modelo_keywords):
-                    continue
+
+            if modelo_keywords and not any(kw in titulo for kw in modelo_keywords):
+                continue
 
             preco_str = item.get("novoPreco")
             if not preco_str:
@@ -369,7 +362,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 links.append(item.get("zProdutoLink", ""))
                 imagens.append(item.get("imagemLink", ""))
                 nomes.append(item.get("eTituloProduto", ""))
-                precos_texto.append(preco_str)  
+                precos_texto.append(preco_str)
             except Exception:
                 continue
 
