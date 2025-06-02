@@ -446,8 +446,7 @@ async def obter_pneu_original(marca: str, modelo: str, ano: int):
 # =============================================================================
 async def get_slug_por_modelo(marca: str, modelo: str, ano: int):
     """
-    Consulta a Wheel-Size para encontrar o slug de modificação de um carro
-    baseado na marca, modelo e ano. Retorna o primeiro slug encontrado.
+    Consulta a Wheel-Size para encontrar o slug de modificação de um carro.
     """
     if not WHEEL_SIZE_TOKEN:
         return None
@@ -458,9 +457,9 @@ async def get_slug_por_modelo(marca: str, modelo: str, ano: int):
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
-            if not data.get("data"):
-                return None
-            return data["data"][0].get("modification_slug")
+        if not data.get("data"):
+            return None
+        return data["data"][0].get("modification_slug")
     except:
         return None
 
@@ -474,16 +473,43 @@ async def get_pneu_original(
     ano: int = Query(..., example=2022)
 ):
     """
-    Endpoint público para consulta de pneu original
+    Retorna a medida do pneu original consultando o slug correto do modelo.
     """
-    result = await obter_pneu_original(marca, modelo, ano)
-    if "erro" in result:
-        raise HTTPException(
-            status_code=500,
-            detail=result["erro"]
-        )
-    return result
+    if not WHEEL_SIZE_TOKEN:
+        raise HTTPException(status_code=500, detail="Token da Wheel-Size não configurado.")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        # 1. Obtem o slug correto do modelo
+        slug = await get_slug_por_modelo(marca, modelo, ano)
+        if not slug:
+            return {"erro": "Slug de modificação não encontrado"}
+
+        # 2. Consulta a Wheel-Size com o slug
+        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&modification={slug}&user_key={WHEEL_SIZE_TOKEN}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+
+        for mod in data.get("data", []):
+            wheels = mod.get("wheels", [])
+            for wheel in wheels:
+                if wheel.get("is_stock") and "tire" in wheel:
+                    tire = wheel["tire"]
+                    width = tire.get("section_width")
+                    aspect = tire.get("aspect_ratio")
+                    rim = tire.get("rim_diameter")
+
+                    if width and aspect and rim:
+                        medida = f"{width}/{aspect} R{rim}"
+                        return {
+                            "pneu_original": medida,
+                            "modification": mod.get("name"),
+                            "slug": mod.get("slug")
+                        }
+
+        return {"erro": "Nenhum pneu original encontrado para o modelo"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar pneu original: {str(e)}")
