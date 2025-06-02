@@ -449,4 +449,14 @@ async def get_pneu_original(
                         medida = f"{width}/{aspect} R{rim}"
                         return {
                             "pneu_original": medida,
+                            "modification": mod.get("name"),
+                            "slug": slug
                         }
+
+        return {"erro": "Nenhum pneu original encontrado para o modelo"}
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Erro Wheel-Size: {e.response.status_code} - {e.response.text}")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar pneu original: {str(e)}")
