@@ -307,9 +307,15 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         cache_key = f"{marca_nome}-{modelo_nome}-{ano_nome}-{peca}"
         if cache_key in peca_cache:
             return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key]}
-        
-        termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
-        payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
+        if "pneu" in peca.lower():
+            medida = await buscar_medida_pneu(marca_nome, modelo_nome, ano_nome)
+            if medida:
+                qtd = "2" if "2" in peca else "4"
+                termo_busca = f"{qtd} pneus {medida}"
+            else:
+                termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+        else:
+            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
         
         try:
             async with httpx.AsyncClient(timeout=20) as client:
