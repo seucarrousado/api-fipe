@@ -43,6 +43,8 @@ BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
+WHEEL_SIZE_BASE = "https://api.wheel-size.com/v2"
+WHEEL_SIZE_API_KEY = os.getenv("WHEEL_SIZE_TOKEN")
 cache = TTLCache(maxsize=100, ttl=3600)  # Cache para FIPE
 peca_cache = TTLCache(maxsize=500, ttl=86400)  # Cache para peças (24 horas)
 
@@ -368,3 +370,37 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         })
 
     return relatorio, total_abatimento
+
+# Novo endpoint para obter o pneu original
+@app.get("/pneu-do-modelo")
+async def get_pneu_por_modelo(
+    make: str = Query(..., example="fiat"),
+    model: str = Query(..., example="argo"),
+    year: int = Query(..., example=2022)
+):
+    async with httpx.AsyncClient() as client:
+        url_mod = f"{WHEEL_SIZE_BASE}/modifications/?make={make}&model={model}&year={year}&user_key={WHEEL_SIZE_API_KEY}"
+        response = await client.get(url_mod)
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="Falha ao consultar modificações da Wheel-Size API")
+        
+        modificacoes = response.json().get("data", [])
+        
+        for m in modificacoes:
+            wheels = m.get("wheels", [])
+            for w in wheels:
+                if w.get("is_stock") and w.get("tire"):
+                    tire = w["tire"]
+                    width = tire.get("section_width")
+                    aspect = tire.get("aspect_ratio")
+                    rim = tire.get("rim_diameter")
+                    if width and aspect and rim:
+                        medida = f"{width}/{aspect} R{rim}"
+                        return {
+                            "pneu_original": medida,
+                            "modification": m.get("name"),
+                            "slug": m.get("slug")
+                        }
+        
+        raise HTTPException(status_code=404, detail="Nenhum pneu original encontrado para esse modelo")
