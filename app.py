@@ -11,6 +11,25 @@ import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
+async def get_slug_por_modelo(marca: str, modelo: str, ano: int):
+    """
+    Consulta a Wheel-Size para encontrar o slug de modificação de um carro
+    baseado na marca, modelo e ano. Retorna o primeiro slug encontrado.
+    """
+    if not WHEEL_SIZE_TOKEN:
+        return None
+
+    try:
+        url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("data"):
+                return None
+            return data["data"][0].get("modification_slug")
+    except:
+        return None
 
 app = FastAPI()
 
@@ -299,7 +318,7 @@ async def get_cidades_por_estado(uf: str):
                 return estado["cidades"]
         return []
     except Exception as e:
-        return {"erro": f"Erro ao carregar cidades: {str(e)}")
+        return {"erro": f"Erro ao carregar cidades: {str(e)}"}
 
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
     relatorio = []
