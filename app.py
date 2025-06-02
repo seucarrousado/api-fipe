@@ -473,18 +473,20 @@ async def get_pneu_original(
     ano: int = Query(..., example=2022)
 ):
     """
-    Retorna a medida do pneu original consultando o slug correto do modelo.
+    Busca a medida do pneu original de fábrica para um modelo específico
+    usando a Wheel-Size API com slugs corretos.
     """
     if not WHEEL_SIZE_TOKEN:
-        raise HTTPException(status_code=500, detail="Token da Wheel-Size não configurado.")
+        raise HTTPException(
+            status_code=500,
+            detail="Token da Wheel-Size não configurado no ambiente"
+        )
 
     try:
-        # 1. Obtem o slug correto do modelo
         slug = await get_slug_por_modelo(marca, modelo, ano)
         if not slug:
             return {"erro": "Slug de modificação não encontrado"}
 
-        # 2. Consulta a Wheel-Size com o slug
         url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={marca.lower()}&model={modelo.lower()}&year={ano}&modification={slug}&user_key={WHEEL_SIZE_TOKEN}"
 
         async with httpx.AsyncClient() as client:
@@ -511,5 +513,12 @@ async def get_pneu_original(
 
         return {"erro": "Nenhum pneu original encontrado para o modelo"}
 
+    except httpx.HTTPStatusError as e:
+        detail = f"Erro na Wheel-Size API: {e.response.status_code} - {e.response.text}"
+        raise HTTPException(status_code=502, detail=detail)
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar pneu original: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao consultar pneu original: {str(e)}"
+        )
