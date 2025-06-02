@@ -487,45 +487,44 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
             
-            # Usar primeira modificação disponível
             mod_slug = modifications[0]['slug']
             
-            # Buscar detalhes do veículo
+            # Buscar detalhes do veículo com região correta (ladm = América Latina)
             detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
             detail_response = await client.get(detail_url)
             detail_response.raise_for_status()
             vehicle_data = detail_response.json()
-            
-            if not vehicle_data.get("data"):
-                logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
-                return ""
-            
-            pneus_validos = []
+        
+        if not vehicle_data.get("data"):
+            logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
+            return ""
 
-            for mod in vehicle_data["data"]:
-                for wheel in mod.get("wheels", []):
-                    if wheel.get("is_stock") and "tire" in wheel:
-                        tire = wheel["tire"]
-                        width = tire.get("section_width")
-                        aspect = tire.get("aspect_ratio")
-                        rim = tire.get("rim_diameter")
+        pneus_validos = []
 
-                        if all([width, aspect, rim]):
-                            pneus_validos.append({
-                                "medida": f"{width}/{aspect} R{rim}",
-                                "aro": rim
-                            })
+        for mod in vehicle_data["data"]:
+            for wheel in mod.get("wheels", []):
+                if wheel.get("is_stock") and "tire" in wheel:
+                    tire = wheel["tire"]
+                    width = tire.get("section_width")
+                    aspect = tire.get("aspect_ratio")
+                    rim = tire.get("rim_diameter")
 
-            # Ordena por tamanho de aro se quiser priorizar menores ou maiores
-            # Aqui priorizamos o menor aro, que geralmente é o mais comum
-            pneus_validos.sort(key=lambda x: x["aro"])
+                    if all([width, aspect, rim]):
+                        pneus_validos.append({
+                            "medida": f"{width}/{aspect} R{rim}",
+                            "aro": rim
+                        })
 
-            if pneus_validos:
-                medida = pneus_validos[0]["medida"]
-                wheel_cache[cache_key] = medida
-                return medida
-   
+        # Ordenar por aro para priorizar os menores (ou altere a lógica se quiser priorizar maiores)
+        pneus_validos.sort(key=lambda x: x["aro"])
+
+        if pneus_validos:
+            medida = pneus_validos[0]["medida"]
+            wheel_cache[cache_key] = medida
+            return medida
+
         return ""
+    
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
         return ""
