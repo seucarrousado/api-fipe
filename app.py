@@ -243,10 +243,9 @@ async def buscar_precos_pecas(
         # Substituir "pneu" por medida real consultada via Wheel-Size
         if any("pneu" in p.lower() for p in lista_pecas):
             try:
-                medida_pneu = await obter_medida_pneu_por_slug
-                    marca=marca_nome, 
-                    modelo=modelo_nome, 
-                    ano=int(ano_codigo.split('-')[0])
+                medida_pneu = await obter_medida_pneu_por_slug(
+                  marca=marca_nome, modelo=modelo_nome, ano=int(ano_codigo.split('-')[0])
+                )
             except Exception as e:
                 logger.warning(f"[WHEEL-SIZE] Erro ao obter pneu original: {str(e)}")
                 medida_pneu = None
