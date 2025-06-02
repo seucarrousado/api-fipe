@@ -449,3 +449,4 @@ async def get_pneu_original(
                         medida = f"{width}/{aspect} R{rim}"
                         return {
                             "pneu_original": medida,
+                        }
