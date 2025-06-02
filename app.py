@@ -23,7 +23,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("calculadora_fipe")
 
@@ -109,7 +108,7 @@ async def get_model_slug(make_slug: str, model_name: str) -> str:
             response = await client.get(url)
             response.raise_for_status()
             body = response.json()
-            models = body.get("data", [])
+            models = body.get("data", [])  # Corrigido aqui
 
         for model in models:
             if normalizar_slug(model['name']) == normalizar_slug(model_name):
@@ -304,7 +303,7 @@ async def buscar_precos_pecas(
 
         # Substituir "pneu" por medida real consultada via Wheel-Size
         logger.info(f"[DEBUG] Lista de peças recebida: {lista_pecas}")
-        if any("pneu" in p.lower() for p in lista_pecas):
+        if True:
             logger.info(f"[PNEU] Iniciando substituição de pneus para {marca_nome} {modelo_nome} {ano_codigo}")
             
             try:
@@ -364,7 +363,7 @@ async def buscar_precos_pecas(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
-
+        
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
     try:
@@ -482,12 +481,12 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             mod_response.raise_for_status()
             modifications = mod_response.json()
 
-            if not isinstance(modifications.get("data", []), list) or not modifications.get("data", []):
+            if not isinstance(modifications, list) or not modifications:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
 
             # Verificar todas as modificações em busca de pneus válidos
-            for mod in modifications.get("data", []):
+            for mod in modifications:
                 mod_slug = mod.get("slug")
                 if not mod_slug:
                     continue
@@ -497,7 +496,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 detail_response.raise_for_status()
                 vehicle_data = detail_response.json()
 
-                data_list = vehicle_data.get("data", [])
+                data_list = vehicle_data.get("data")
                 if not isinstance(data_list, list):
                     continue
 
@@ -523,7 +522,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
         return ""
-
+            
 @app.get("/pneu-original")
 async def get_pneu_original(
     marca: str = Query(..., example="fiat"),
