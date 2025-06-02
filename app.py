@@ -500,18 +500,31 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
                 return ""
             
-            for mod in vehicle_data.get("data", []):
-                wheels = mod.get("wheels", [])
-                for wheel in wheels:
-                    tire = wheel.get("tire", {})
-                    if wheel.get("is_stock") and all(k in tire for k in ["section_width", "aspect_ratio", "rim_diameter"]):
+            pneus_validos = []
+
+            for mod in vehicle_data["data"]:
+                for wheel in mod.get("wheels", []):
+                    if wheel.get("is_stock") and "tire" in wheel:
+                        tire = wheel["tire"]
                         width = tire.get("section_width")
                         aspect = tire.get("aspect_ratio")
                         rim = tire.get("rim_diameter")
-                        if width and aspect and rim:
-                            medida = f"{width}/{aspect} R{rim}"
-                            wheel_cache[cache_key] = medida
-                            return medida        
+
+                        if all([width, aspect, rim]):
+                            pneus_validos.append({
+                                "medida": f"{width}/{aspect} R{rim}",
+                                "aro": rim
+                            })
+
+            # Ordena por tamanho de aro se quiser priorizar menores ou maiores
+            # Aqui priorizamos o menor aro, que geralmente é o mais comum
+            pneus_validos.sort(key=lambda x: x["aro"])
+
+            if pneus_validos:
+                medida = pneus_validos[0]["medida"]
+                wheel_cache[cache_key] = medida
+                return medida
+   
         return ""
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
