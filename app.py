@@ -133,60 +133,52 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         make_slug = await get_make_slug(marca)
         modelo_slug = modelo.split()[0].strip().lower()
         model_slug = await get_model_slug(make_slug, modelo_slug)
-        logger.info(f"[WHEEL] Modelo: {modelo} → Slug retornado: {model_slug}")
 
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
 
-        # Buscar modificações disponíveis
-        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+        mod_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification=&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
-            modifications = mod_response.json().get("data", [])
+            vehicle_data = mod_response.json()
 
-        if not isinstance(modifications, list) or not modifications:
-            logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
+        data_list = vehicle_data.get("data")
+        if not isinstance(data_list, list):
             return ""
 
-        logger.info(f"[WHEEL] {len(modifications)} modificações encontradas para {make_slug}/{model_slug}/{ano}")
-        mod_slug = ""
-        modelo_normalizado = normalizar_slug(modelo)
+        for mod_data in data_list:
+            wheels = mod_data.get("wheels", [])
+            if not isinstance(wheels, list):
+                logger.warning(f"[WHEEL] wheels não é lista ou está vazio: {wheels}")
+                continue
 
-        for i, mod in enumerate(modifications):
-            nome = mod.get("name", "")
-            motor = mod.get("engine", {}).get("capacity", "")
-            combustivel = mod.get("engine", {}).get("fuel", "")
-            slug = mod.get("slug", "")
+            for wheel in wheels:
+                if not wheel.get("is_stock"):
+                    continue
 
-            logger.info(f"[MOD-{i+1}] Nome: {nome} | Motor: {motor} | Combustível: {combustivel} | Slug: {slug}")
+                for eixo in ["front", "rear"]:
+                    eixo_data = wheel.get(eixo, {})
+                    logger.info(f"[DEBUG] eixo={eixo}, eixo_data={eixo_data}")
 
-            termos = [
-                normalizar_slug(nome.lower()),
-                normalizar_slug(motor.replace('.', '')),
-                normalizar_slug(combustivel),
-            ]
+                    if not isinstance(eixo_data, dict):
+                        continue
 
-            if any(term and term in modelo_normalizado for term in termos):
-                logger.info(f"[WHEEL] Modificação compatível encontrada: {nome} → slug={slug}")
-                mod_slug = slug
-                break
+                    tire_full = eixo_data.get("tire_full", "")
+                    if isinstance(tire_full, str) and tire_full:
+                        medida = tire_full.split()[0]
+                        logger.info(f"[WHEEL] Medida encontrada via tire_full no eixo {eixo}: {medida}")
+                        wheel_cache[cache_key] = medida
+                        return medida
 
-        if not mod_slug:
-            for mod in modifications:
-                if "ladm" in mod.get("regions", []):
-                    mod_slug = mod.get("slug", "")
-                    logger.warning(f"[WHEEL] Nenhuma modificação 100% compatível encontrada, usando slug da LADM: {mod_slug}")
-                    break
-
-        # Chamar função dedicada para obter medida do pneu
-        medida = await get_medida_pneu_por_slug(marca, model_slug, ano)
-        return medida
+        logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
+        return ""
 
     except Exception as e:
-        logger.error(f"[WHEEL] Erro geral em obter_medida_pneu_por_slug: {str(e)}")
+        logger.error(f"[WHEEL] Erro: {str(e)}")
         return ""
+
 
 @app.get("/marcas")
 async def listar_marcas():
