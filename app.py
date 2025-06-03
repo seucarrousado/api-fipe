@@ -203,15 +203,22 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
             for mod_data in data_list:
                 wheels = mod_data.get("wheels", {})
+                logger.info(f"[DEBUG] Rodas disponíveis: {wheels}")
+                
                 if not isinstance(wheels, dict):
+                    logger.warning(f"[DEBUG] wheels não é dict ou está vazio: {wheels}")
                     continue
 
                 for eixo in ["front", "rear"]:
                     eixo_data = wheel.get(eixo, {})
+                    logger.info(f"[DEBUG] eixo={eixo}, eixo_data={eixo_data}")
+
                     if not isinstance(eixo_data, dict):
                         continue
 
                     tire_full = eixo_data.get("tire_full", "")
+                    logger.info(f"[DEBUG] tire_full bruto do eixo {eixo}: {tire_full}")
+
                     if isinstance(tire_full, str) and tire_full:
                         medida = tire_full.split()[0]
                         logger.info(f"[WHEEL] Medida encontrada via tire_full no eixo {eixo}: {medida}")
