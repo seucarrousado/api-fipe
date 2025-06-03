@@ -86,8 +86,10 @@ async def get_make_slug(make_name: str) -> str:
             
             for make in makes.get("data", []):
                 if normalizar_slug(make['name']) == normalizar_slug(make_name):
-                    slug_cache[cache_key] = make['slug']
-                    return make['slug']
+                    slug_encontrado = make['slug']
+                    logger.info(f"[WHEEL] Marca: {make_name} → Slug retornado: {slug_encontrado}")
+                    slug_cache[cache_key] = slug_encontrado
+                    return slug_encontrado
         
         # Fallback: normalização direta
         slug_normalizado = normalizar_slug(make_name)
@@ -148,6 +150,15 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             if not isinstance(modifications, list) or not modifications:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
+
+            logger.info(f"[WHEEL] {len(modifications)} modificações encontradas para {make_slug}/{model_slug}/{ano}")
+            for i, mod in enumerate(modifications):
+                nome = mod.get("name", "")
+                motor = mod.get("engine", {}).get("capacity", "")
+                combustivel = mod.get("engine", {}).get("fuel", "")
+                slug = mod.get("slug", "")
+                logger.info(f"[MOD-{i+1}] Nome: {nome} | Motor: {motor} | Combustível: {combustivel} | Slug: {slug}")
+
 
             modelo_normalizado = normalizar_slug(modelo)
             mod_slug = ""
