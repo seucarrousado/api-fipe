@@ -171,8 +171,16 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 combustivel = mod.get("engine", {}).get("fuel", "")
                 slug_temp = mod.get("slug", "")
 
-                termos = [nome_mod, motor.replace('.', ''), combustivel]
-                if any(term in modelo_normalizado for term in termos if term):
+                termos = [
+                    normalizar_slug(nome_mod),
+                    normalizar_slug(motor.replace('.', '')),
+                    normalizar_slug(combustivel),
+                ]
+
+                modelo_normalizado = normalizar_slug(modelo)
+
+                if any(term and term in modelo_normalizado for term in termos):
+                    logger.info(f"[WHEEL] Modificação compatível encontrada: {nome_mod} → slug={slug_temp}")
                     mod_slug = slug_temp
                     break
 
