@@ -202,47 +202,24 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 return ""
 
             for mod_data in data_list:
-                for wheel in mod_data.get("wheels", []):
-                    if not wheel.get("is_stock"):
+                wheels = mod_data.get("wheels", {})
+                if not isinstance(wheels, dict):
+                    continue
+
+                for eixo in ["front", "rear"]:
+                    eixo_data = wheels.get(eixo, {})
+                    if not isinstance(eixo_data, dict):
                         continue
 
-                    for eixo in ["front", "rear"]:
-                        eixo_data = wheel.get(eixo, {})
-                        if not eixo_data:
-                            continue
+                    tire_full = eixo_data.get("tire_full", "")
+                    if isinstance(tire_full, str) and tire_full:
+                        medida = tire_full.split()[0]
+                        logger.info(f"[WHEEL] Medida encontrada via tire_full no eixo {eixo}: {medida}")
+                        wheel_cache[cache_key] = medida
+                        return medida
 
-                        # Prioridade 1: estrutura em tire (mais detalhada)
-                        tire = eixo_data.get("tire")
-                        if tire:
-                            width = tire.get("section_width")
-                            aspect = tire.get("aspect_ratio")
-                            rim = tire.get("rim_diameter")
-
-                            if all([width, aspect, rim]):
-                                medida = f"{width}/{aspect} R{rim}"
-                                logger.info(f"[WHEEL] Medida encontrada no eixo {eixo} via tire: {medida}")
-                                wheel_cache[cache_key] = medida
-                                return medida
-
-                        # Prioridade 2: fallback com tire_full
-                        tire_full = eixo_data.get("tire_full", "")
-                        if tire_full:
-                            medida = tire_full.split()[0]
-                            logger.info(f"[WHEEL] Medida fallback via tire_full no eixo {eixo}: {medida}")
-                            wheel_cache[cache_key] = medida
-                            return medida
-
-                    else:
-                        logger.warning(f"[WHEEL] Medida incompleta. width={width}, aspect={aspect}, rim={rim}")
-
-            logger.warning(f"[WHEEL] Nenhuma medida encontrada para {marca}/{modelo}/{ano}")
+            logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
             return ""
-
-    except Exception as e:
-        logger.error(f"[WHEEL] Erro: {str(e)}")
-        return ""
-
-
 
 @app.get("/marcas")
 async def listar_marcas():
