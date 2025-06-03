@@ -8,8 +8,7 @@ import os
 import asyncio
 from datetime import datetime
 import json
-import re
-import unicodedata
+import unicodedata  # Adicionado para normalização
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -45,15 +44,15 @@ BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
-# Variáveis adicionadas para Wheel-Size
+
+# Bloco 1: Configurações Wheel-Size
 WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
 WHEEL_SIZE_BASE = "https://api.wheel-size.com/v2"
+wheel_cache = TTLCache(maxsize=200, ttl=86400)  # Cache para medidas de pneus
 
+# Cache original mantido
 cache = TTLCache(maxsize=100, ttl=3600)  # Cache para FIPE
 peca_cache = TTLCache(maxsize=500, ttl=86400)  # Cache para peças (24 horas)
-# Novos caches para Wheel-Size
-slug_cache = TTLCache(maxsize=100, ttl=86400)  # Cache para slugs (24 horas)
-wheel_cache = TTLCache(maxsize=50, ttl=86400)  # Cache para medidas de pneus (24 horas)
 
 class FipeQuery(BaseModel):
     marca: str
@@ -67,158 +66,77 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
-# Funções adicionadas para Wheel-Size
-def normalizar_slug(texto: str) -> str:
-    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
+# Função utilitária para normalização de slugs
+def normalizar_slug(texto):
     texto = texto.lower().strip()
-    texto = re.sub(r'[\s_]+', '-', texto)
-    texto = re.sub(r'[^a-z0-9\-]', '', texto)
-    return texto
+    texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
+    return texto.replace(" ", "")
 
-async def get_make_slug(make_name: str) -> str:
-    cache_key = f"make_slug:{make_name}"
-    if cache_key in slug_cache:
-        return slug_cache[cache_key]
-    
-    try:
-        url = f"{WHEEL_SIZE_BASE}/makes/?user_key={WHEEL_SIZE_TOKEN}"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            makes = response.json()
-            
-            for make in makes.get("data", []):
-                if normalizar_slug(make['name']) == normalizar_slug(make_name):
-                    slug_encontrado = make['slug']
-                    logger.info(f"[WHEEL] Marca: {make_name} → Slug retornado: {slug_encontrado}")
-                    slug_cache[cache_key] = slug_encontrado
-                    return slug_encontrado
-        
-        # Fallback: normalização direta
-        slug_normalizado = normalizar_slug(make_name)
-        slug_cache[cache_key] = slug_normalizado
-        return slug_normalizado
-    except Exception as e:
-        logger.error(f"[WHEEL] Erro ao buscar slug da marca {make_name}: {str(e)}")
-        return normalizar_slug(make_name)
+# Slugs da Wheel-Size
+async def get_make_slug(marca: str) -> str:
+    url = f"{WHEEL_SIZE_BASE}/makes/?user_key={WHEEL_SIZE_TOKEN}"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        marcas = response.json()
 
-async def get_model_slug(make_slug: str, model_name: str) -> str:
-    cache_key = f"model_slug:{make_slug}:{model_name}"
-    if cache_key in slug_cache:
-        return slug_cache[cache_key]
-    
-    try:
-        url = f"{WHEEL_SIZE_BASE}/models/?make={make_slug}&user_key={WHEEL_SIZE_TOKEN}"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            body = response.json()
-            models = body.get("data", [])
+    marca_norm = normalizar_slug(marca)
+    for m in marcas:
+        if normalizar_slug(m.get("name", "")) == marca_norm:
+            return m.get("slug", "")
+    return ""
 
-        for model in models:
-            if normalizar_slug(model['name']) == normalizar_slug(model_name):
-                slug_cache[cache_key] = model['slug']
-                return model['slug']
-        
-        slug_normalizado = normalizar_slug(model_name)
-        slug_cache[cache_key] = slug_normalizado
-        return slug_normalizado
-    except Exception as e:
-        logger.error(f"[WHEEL] Erro ao buscar slug do modelo {model_name}: {str(e)}")
-        return normalizar_slug(model_name)
+async def get_model_slug(make_slug: str, modelo: str) -> str:
+    url = f"{WHEEL_SIZE_BASE}/models/?make={make_slug}&user_key={WHEEL_SIZE_TOKEN}"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        modelos = response.json()
 
+    modelo_norm = normalizar_slug(modelo)
+    for m in modelos:
+        if normalizar_slug(m.get("name", "")) == modelo_norm:
+            return m.get("slug", "")
+    return ""
+
+# Função principal que retorna a medida do pneu
 async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
     if cache_key in wheel_cache:
-        logger.info(f"[WHEEL] Retornando medida do cache para {marca}/{modelo}/{ano}")
         return wheel_cache[cache_key]
 
     try:
-        logger.info(f"[WHEEL] Iniciando busca de medida para {marca}/{modelo}/{ano}")
         make_slug = await get_make_slug(marca)
-        logger.info(f"[WHEEL] Slug da marca: {make_slug}")
-
-        # Separar nome do modelo (ex: "argo") para slug
-        modelo_slug = modelo.split()[0].strip().lower()
-        model_slug = await get_model_slug(make_slug, modelo_slug)
-        logger.info(f"[WHEEL] Modelo: {modelo} → Slug retornado: {model_slug}")
+        model_slug = await get_model_slug(make_slug, modelo)
 
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
 
-        # Buscar modificações disponíveis para este modelo e ano
-        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
-        logger.info(f"[WHEEL] Buscando modificações em: {mod_url}")
+        mod_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
-            modifications = mod_response.json().get("data", [])
+            vehicle_data = mod_response.json()
 
-            if not isinstance(modifications, list) or not modifications:
-                logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
-                return ""
+        data_list = vehicle_data.get("data")
+        if not isinstance(data_list, list):
+            return ""
 
-            logger.info(f"[WHEEL] {len(modifications)} modificações encontradas para {make_slug}/{model_slug}/{ano}")
-            for i, mod in enumerate(modifications):
-                nome = mod.get("name", "")
-                motor = mod.get("engine", {}).get("capacity", "")
-                combustivel = mod.get("engine", {}).get("fuel", "")
-                slug = mod.get("slug", "")
-                logger.info(f"[MOD-{i+1}] Nome: {nome} | Motor: {motor} | Combustível: {combustivel} | Slug: {slug}")
+        for mod_data in data_list:
+            wheels = mod_data.get("wheels", [])
+            if not isinstance(wheels, list):
+                logger.warning(f"[WHEEL] wheels não é lista ou está vazio: {wheels}")
+                continue
 
-
-            modelo_normalizado = normalizar_slug(modelo)
-            mod_slug = ""
-
-            # Buscar modificação mais compatível com o nome completo
-            for mod in modifications:
-                nome_mod = mod.get("name", "").lower()
-                motor = mod.get("engine", {}).get("capacity", "")
-                combustivel = mod.get("engine", {}).get("fuel", "")
-                slug_temp = mod.get("slug", "")
-
-                termos = [
-                    normalizar_slug(nome_mod),
-                    normalizar_slug(motor.replace('.', '')),
-                    normalizar_slug(combustivel),
-                ]
-
-                modelo_normalizado = normalizar_slug(modelo)
-
-                if any(term and term in modelo_normalizado for term in termos):
-                    logger.info(f"[WHEEL] Modificação compatível encontrada: {nome_mod} → slug={slug_temp}")
-                    mod_slug = slug_temp
-                    break
-
-            if not mod_slug:
-                logger.warning(f"[WHEEL] Nenhuma modificação compatível encontrada para {modelo_normalizado}")
-                for mod in modifications:
-                    if "ladm" in mod.get("regions", []):
-                        mod_slug = mod.get("slug", "")
-                        logger.warning(f"[WHEEL] Usando slug da LADM: {mod_slug}")
-                        break
-
-            # Buscar medida de pneu com base na modificação
-            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
-            logger.info(f"[WHEEL] Buscando detalhes em: {detail_url}")
-            detail_response = await client.get(detail_url)
-            detail_response.raise_for_status()
-            vehicle_data = detail_response.json()
-
-            data_list = vehicle_data.get("data")
-            if not isinstance(data_list, list):
-                logger.error(f"[WHEEL] Dados inválidos retornados: {vehicle_data}")
-                return ""
-
-            for mod_data in data_list:
-                wheels = mod_data.get("wheels", {})
-                if not isinstance(wheels, dict):
-                    logger.warning(f"[WHEEL] Formato inesperado de wheels: {type(wheels)}")
+            for wheel in wheels:
+                if not wheel.get("is_stock"):
                     continue
 
                 for eixo in ["front", "rear"]:
-                    eixo_data = wheels.get(eixo, {})
+                    eixo_data = wheel.get(eixo, {})
+                    logger.info(f"[DEBUG] eixo={eixo}, eixo_data={eixo_data}")
+
                     if not isinstance(eixo_data, dict):
                         continue
 
@@ -229,14 +147,12 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                         wheel_cache[cache_key] = medida
                         return medida
 
-            logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
-            return ""
-            
-    except httpx.HTTPStatusError as e:
-        logger.error(f"[WHEEL] Erro HTTP ({e.response.status_code}): {str(e)}")
+        logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
+        return ""
+
     except Exception as e:
-        logger.error(f"[WHEEL] Erro inesperado: {str(e)}")
-    return ""
+        logger.error(f"[WHEEL] Erro: {str(e)}")
+        return ""
 
 # Novo endpoint para consulta direta de pneus
 @app.get("/pneu-original")
@@ -445,7 +361,7 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
-        # ===== CORREÇÃO: ATIVAÇÃO DA FUNCIONALIDADE DE PNEUS =====
+        # ===== INTEGRAÇÃO DA FUNCIONALIDADE DE PNEUS =====
         logger.info(f"[DEBUG] Lista de peças recebida: {lista_pecas}")
         
         # Verifica se há pneus na lista
@@ -491,7 +407,7 @@ async def buscar_precos_pecas(
                 logger.error(f"[PNEU] Erro crítico: {str(e)}")
         else:
             logger.info("[PNEU] Nenhum pneu na lista. Nada a substituir.")
-        # ===== FIM DA CORREÇÃO =====
+        # ===== FIM DA INTEGRAÇÃO =====
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
