@@ -205,7 +205,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 wheels = mod_data.get("wheels", {})
                 logger.info(f"[DEBUG] Rodas disponíveis: {wheels}")
                 
-                if not isinstance(wheels, dict):
+                if not isinstance(wheels, list):
                     logger.warning(f"[DEBUG] wheels não é dict ou está vazio: {wheels}")
                     continue
 
