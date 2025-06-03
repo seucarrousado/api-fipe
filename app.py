@@ -212,6 +212,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
                     data_list = vehicle_data.get("data")
                     if not isinstance(data_list, list):
+                        logger.warning(f"[WHEEL] Formato inesperado em data: {data_list}")
                         return ""
 
                     for mod_data in data_list:
@@ -226,7 +227,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
                             for eixo in ["front", "rear"]:
                                 eixo_data = wheel.get(eixo, {})
-                                logger.info(f"[DEBUG] eixo={eixo}, eixo_data={eixo_data}")
+                                logger.debug(f"[DEBUG] eixo={eixo}, eixo_data={eixo_data}")
 
                                 if not isinstance(eixo_data, dict):
                                     continue
@@ -240,9 +241,11 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
                     logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
                     return ""
+
                 except Exception as e:
                     logger.error(f"[WHEEL] Erro: {str(e)}")
                     return ""
+
 
 
 @app.get("/marcas")
