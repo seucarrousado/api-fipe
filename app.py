@@ -249,7 +249,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 async def listar_marcas():
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{BASE_URL}/brands/1?token={TOKEN}"
+            url = f"{BASE_URL}/brands/?token={TOKEN}"
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
