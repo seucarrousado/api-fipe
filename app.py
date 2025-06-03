@@ -185,8 +185,11 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                     break
 
             if not mod_slug:
-                mod_slug = modifications[0].get("slug", "")
-                logger.warning(f"[WHEEL] Nenhuma modificação 100% compatível encontrada, usando slug: {mod_slug}")
+                for mod in modifications:
+                    if "ladm" in mod.get("regions", []):
+                        mod_slug = mod.get("slug", "")
+                        logger.warning(f"[WHEEL] Nenhuma modificação 100% compatível encontrada, usando slug da LADM: {mod_slug}")
+                        break
 
             # Buscar medida de pneu com base na modificação
             detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
