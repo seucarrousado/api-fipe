@@ -245,6 +245,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                     logger.error(f"[WHEEL] Erro: {str(e)}")
                     return ""
 
+
 @app.get("/marcas")
 async def listar_marcas():
     try:
