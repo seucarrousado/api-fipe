@@ -207,17 +207,28 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                         continue
 
                     for eixo in ["front", "rear"]:
-                        tire = wheel.get(eixo, {})
-                        if not tire:
+                        eixo_data = wheel.get(eixo, {})
+                        if not eixo_data:
                             continue
 
-                        width = tire.get("section_width")
-                        aspect = tire.get("aspect_ratio")
-                        rim = tire.get("rim_diameter")
+                        # Prioridade 1: estrutura em tire (mais detalhada)
+                        tire = eixo_data.get("tire")
+                        if tire:
+                            width = tire.get("section_width")
+                            aspect = tire.get("aspect_ratio")
+                            rim = tire.get("rim_diameter")
 
-                        if all([width, aspect, rim]):
-                            medida = f"{width}/{aspect} R{rim}"
-                            logger.info(f"[WHEEL] Medida encontrada no eixo {eixo}: {medida}")
+                            if all([width, aspect, rim]):
+                                medida = f"{width}/{aspect} R{rim}"
+                                logger.info(f"[WHEEL] Medida encontrada no eixo {eixo} via tire: {medida}")
+                                wheel_cache[cache_key] = medida
+                                return medida
+
+                        # Prioridade 2: fallback com tire_full
+                        tire_full = eixo_data.get("tire_full", "")
+                        if tire_full:
+                            medida = tire_full.split()[0]
+                            logger.info(f"[WHEEL] Medida fallback via tire_full no eixo {eixo}: {medida}")
                             wheel_cache[cache_key] = medida
                             return medida
 
