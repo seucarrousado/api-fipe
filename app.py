@@ -207,7 +207,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                     continue
 
                 for eixo in ["front", "rear"]:
-                    eixo_data = wheels.get(eixo, {})
+                    eixo_data = wheel.get(eixo, {})
                     if not isinstance(eixo_data, dict):
                         continue
 
