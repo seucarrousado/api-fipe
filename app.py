@@ -205,20 +205,22 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 for wheel in mod_data.get("wheels", []):
                     if not wheel.get("is_stock"):
                         continue
-                    if "tire" not in wheel:
-                        logger.warning(f"[WHEEL] 'tire' não presente em wheel: {wheel}")
-                        continue
 
-                    tire = wheel["tire"]
-                    width = tire.get("section_width")
-                    aspect = tire.get("aspect_ratio")
-                    rim = tire.get("rim_diameter")
+                    for eixo in ["front", "rear"]:
+                        tire = wheel.get(eixo, {})
+                        if not tire:
+                            continue
 
-                    if all([width, aspect, rim]):
-                        medida = f"{width}/{aspect} R{rim}"
-                        logger.info(f"[WHEEL] Medida encontrada: {medida}")
-                        wheel_cache[cache_key] = medida
-                        return medida
+                        width = tire.get("section_width")
+                        aspect = tire.get("aspect_ratio")
+                        rim = tire.get("rim_diameter")
+
+                        if all([width, aspect, rim]):
+                            medida = f"{width}/{aspect} R{rim}"
+                            logger.info(f"[WHEEL] Medida encontrada no eixo {eixo}: {medida}")
+                            wheel_cache[cache_key] = medida
+                            return medida
+
                     else:
                         logger.warning(f"[WHEEL] Medida incompleta. width={width}, aspect={aspect}, rim={rim}")
 
