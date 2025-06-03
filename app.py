@@ -240,7 +240,6 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
                     logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
                     return ""
-
                 except Exception as e:
                     logger.error(f"[WHEEL] Erro: {str(e)}")
                     return ""
