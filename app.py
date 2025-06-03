@@ -130,15 +130,15 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     try:
         make_slug = await get_make_slug(marca)
 
-        # Limpar modelo para slug base (ex: "argo", "uno")
-        modelo_limpo = modelo.split()[0].strip().lower()
-        model_slug = await get_model_slug(make_slug, modelo_limpo)
+        # Separar nome do modelo (ex: "argo") para slug
+        modelo_slug = modelo.split()[0].strip().lower()
+        model_slug = await get_model_slug(make_slug, modelo_slug)
 
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
 
-        # Buscar todas as modificações para aquele modelo e ano
+        # Buscar modificações disponíveis para este modelo e ano
         mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
@@ -149,25 +149,26 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
 
-            # Buscar modificação mais compatível com o nome completo
             modelo_normalizado = normalizar_slug(modelo)
             mod_slug = ""
+
+            # Buscar modificação mais compatível com o nome completo
             for mod in modifications:
                 nome_mod = mod.get("name", "").lower()
                 motor = mod.get("engine", {}).get("capacity", "")
                 combustivel = mod.get("engine", {}).get("fuel", "")
                 slug_temp = mod.get("slug", "")
 
-                if any(palavra in modelo_normalizado for palavra in [nome_mod, motor.replace('.', ''), combustivel]):
+                termos = [nome_mod, motor.replace('.', ''), combustivel]
+                if any(term in modelo_normalizado for term in termos if term):
                     mod_slug = slug_temp
                     break
 
-            # Fallback: primeira modificação
             if not mod_slug:
                 mod_slug = modifications[0].get("slug", "")
                 logger.warning(f"[WHEEL] Nenhuma modificação 100% compatível encontrada, usando slug: {mod_slug}")
 
-            # Buscar detalhes da modificação para obter o pneu
+            # Buscar medida de pneu com base na modificação
             detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
             detail_response = await client.get(detail_url)
             detail_response.raise_for_status()
@@ -196,6 +197,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
         return ""
+
 
 
 @app.get("/marcas")
