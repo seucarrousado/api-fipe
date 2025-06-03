@@ -214,8 +214,8 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                             wheel_cache[cache_key] = medida
                             return medida
 
-        logger.warning(f"[WHEEL] Nenhuma medida encontrada para {marca}/{modelo}/{ano}")
-        return ""
+            logger.warning(f"[WHEEL] Nenhuma medida encontrada para {marca}/{modelo}/{ano}")
+            return ""
 
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
