@@ -139,7 +139,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             return ""
 
         # Buscar modificações disponíveis para este modelo e ano
-        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
