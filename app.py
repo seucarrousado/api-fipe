@@ -130,10 +130,13 @@ async def get_model_slug(make_slug: str, model_name: str) -> str:
 async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
     if cache_key in wheel_cache:
+        logger.info(f"[WHEEL] Retornando medida do cache para {marca}/{modelo}/{ano}")
         return wheel_cache[cache_key]
 
     try:
+        logger.info(f"[WHEEL] Iniciando busca de medida para {marca}/{modelo}/{ano}")
         make_slug = await get_make_slug(marca)
+        logger.info(f"[WHEEL] Slug da marca: {make_slug}")
 
         # Separar nome do modelo (ex: "argo") para slug
         modelo_slug = modelo.split()[0].strip().lower()
@@ -146,6 +149,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
         # Buscar modificações disponíveis para este modelo e ano
         mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+        logger.info(f"[WHEEL] Buscando modificações em: {mod_url}")
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
@@ -188,25 +192,29 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                     break
 
             if not mod_slug:
+                logger.warning(f"[WHEEL] Nenhuma modificação compatível encontrada para {modelo_normalizado}")
                 for mod in modifications:
                     if "ladm" in mod.get("regions", []):
                         mod_slug = mod.get("slug", "")
-                        logger.warning(f"[WHEEL] Nenhuma modificação 100% compatível encontrada, usando slug da LADM: {mod_slug}")
+                        logger.warning(f"[WHEEL] Usando slug da LADM: {mod_slug}")
                         break
 
             # Buscar medida de pneu com base na modificação
             detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+            logger.info(f"[WHEEL] Buscando detalhes em: {detail_url}")
             detail_response = await client.get(detail_url)
             detail_response.raise_for_status()
             vehicle_data = detail_response.json()
 
             data_list = vehicle_data.get("data")
             if not isinstance(data_list, list):
+                logger.error(f"[WHEEL] Dados inválidos retornados: {vehicle_data}")
                 return ""
 
             for mod_data in data_list:
                 wheels = mod_data.get("wheels", {})
                 if not isinstance(wheels, dict):
+                    logger.warning(f"[WHEEL] Formato inesperado de wheels: {type(wheels)}")
                     continue
 
                 for eixo in ["front", "rear"]:
@@ -224,9 +232,11 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
             return ""
             
+    except httpx.HTTPStatusError as e:
+        logger.error(f"[WHEEL] Erro HTTP ({e.response.status_code}): {str(e)}")
     except Exception as e:
-        logger.error(f"[WHEEL] Erro: {str(e)}")
-        return ""
+        logger.error(f"[WHEEL] Erro inesperado: {str(e)}")
+    return ""
 
 # Novo endpoint para consulta direta de pneus
 @app.get("/pneu-original")
@@ -435,13 +445,19 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
-        # ===== NOVA FUNCIONALIDADE: SUBSTITUIÇÃO DE PNEUS =====
+        # ===== CORREÇÃO: ATIVAÇÃO DA FUNCIONALIDADE DE PNEUS =====
         logger.info(f"[DEBUG] Lista de peças recebida: {lista_pecas}")
-        if any("pneu" in p.lower() for p in lista_pecas):
+        
+        # Verifica se há pneus na lista
+        tem_pneu = any("pneu" in p.lower() for p in lista_pecas)
+        logger.info(f"[PNEU] Verificação de pneus: {'Sim' if tem_pneu else 'Não'}")
+        
+        if tem_pneu:
             logger.info(f"[PNEU] Detectado pneu na lista - iniciando substituição")
             
             try:
                 ano_int = int(ano_codigo.split('-')[0])
+                logger.info(f"[PNEU] Ano convertido para inteiro: {ano_int}")
             except:
                 ano_int = datetime.now().year
                 logger.warning(f"[PNEU] Falha ao converter ano, usando {ano_int} como fallback")
@@ -449,6 +465,7 @@ async def buscar_precos_pecas(
             try:
                 # Normalizar modelo para busca (usar primeira palavra)
                 modelo_limpo = modelo_nome.split()[0].strip().lower()
+                logger.info(f"[PNEU] Buscando medida para: Marca={marca_nome}, Modelo={modelo_limpo}, Ano={ano_int}")
                 medida_pneu = await obter_medida_pneu_por_slug(
                     marca=marca_nome, 
                     modelo=modelo_limpo, 
@@ -461,7 +478,9 @@ async def buscar_precos_pecas(
                         if "pneu" in peca.lower():
                             # Detecta quantidade (2 ou 4 pneus)
                             qtd = "4" if any(k in peca.lower() for k in ["4", "quatro", "jogo"]) else "2"
-                            nova_lista.append(f"{qtd} pneus {medida_pneu}")
+                            nova_peca = f"{qtd} pneus {medida_pneu}"
+                            nova_lista.append(nova_peca)
+                            logger.info(f"[PNEU] Substituindo '{peca}' por '{nova_peca}'")
                         else:
                             nova_lista.append(peca)
                     lista_pecas = nova_lista
@@ -470,7 +489,9 @@ async def buscar_precos_pecas(
                     logger.warning("[PNEU] Medida não encontrada. Mantendo termo original.")
             except Exception as e:
                 logger.error(f"[PNEU] Erro crítico: {str(e)}")
-        # ===== FIM DA NOVA FUNCIONALIDADE =====
+        else:
+            logger.info("[PNEU] Nenhum pneu na lista. Nada a substituir.")
+        # ===== FIM DA CORREÇÃO =====
 
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
