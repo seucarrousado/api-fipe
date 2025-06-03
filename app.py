@@ -389,9 +389,10 @@ async def buscar_precos_pecas(
                 logger.warning(f"[PNEU] Falha ao converter ano, usando {ano_int} como fallback")
             
             try:
+                modelo_nome_limpo = modelo_nome.split()[0].strip().lower()  # ou use a função limpar_modelo() se quiser algo mais robusto
                 medida_pneu = await obter_medida_pneu_por_slug(
                     marca=marca_nome, 
-                    modelo=modelo_nome, 
+                    modelo=modelo_nome_limpo, 
                     ano=ano_int)
                 
                 if medida_pneu:
