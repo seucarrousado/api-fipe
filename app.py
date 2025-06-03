@@ -45,10 +45,10 @@ TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
 
-# Bloco 1: Configurações Wheel-Size
-WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
+# Bloco 1: Configurações Wheel-Size (ATUALIZADO)
 WHEEL_SIZE_BASE = "https://api.wheel-size.com/v2"
-wheel_cache = TTLCache(maxsize=200, ttl=86400)  # Cache para medidas de pneus
+WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
+wheel_cache = TTLCache(maxsize=100, ttl=86400)  # Cache para medidas de pneus
 
 # Cache original mantido
 cache = TTLCache(maxsize=100, ttl=3600)  # Cache para FIPE
@@ -66,41 +66,43 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
-# Função utilitária para normalização de slugs
-def normalizar_slug(texto):
-    texto = texto.lower().strip()
-    texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
-    return texto.replace(" ", "")
-
-# Slugs da Wheel-Size
+# =================================================================
+# ✅ 2. FUNÇÕES AUXILIARES (SLUGs) - IMPLEMENTAÇÃO CORRIGIDA
+# =================================================================
 async def get_make_slug(marca: str) -> str:
-    url = f"{WHEEL_SIZE_BASE}/makes/?user_key={WHEEL_SIZE_TOKEN}"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        marcas = response.json()
-
-    marca_norm = normalizar_slug(marca)
-    for m in marcas:
-        if normalizar_slug(m.get("name", "")) == marca_norm:
-            return m.get("slug", "")
-    return ""
+    try:
+        url = f"{WHEEL_SIZE_BASE}/makes/?user_key={WHEEL_SIZE_TOKEN}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+        for item in data.get("results", []):
+            if item.get("name", "").lower() == marca.lower():
+                return item.get("slug", "")
+        return ""
+    except Exception as e:
+        logger.error(f"[WHEEL] Erro ao buscar make_slug: {str(e)}")
+        return ""
 
 async def get_model_slug(make_slug: str, modelo: str) -> str:
-    url = f"{WHEEL_SIZE_BASE}/models/?make={make_slug}&user_key={WHEEL_SIZE_TOKEN}"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        modelos = response.json()
+    try:
+        url = f"{WHEEL_SIZE_BASE}/models/?make={make_slug}&user_key={WHEEL_SIZE_TOKEN}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+        for item in data.get("results", []):
+            if item.get("name", "").lower() in modelo.lower():
+                return item.get("slug", "")
+        return ""
+    except Exception as e:
+        logger.error(f"[WHEEL] Erro ao buscar model_slug: {str(e)}")
+        return ""
 
-    modelo_norm = normalizar_slug(modelo)
-    for m in modelos:
-        if normalizar_slug(m.get("name", "")) == modelo_norm:
-            return m.get("slug", "")
-    return ""
-
-# Função principal que retorna a medida do pneu
-async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
+# =================================================================
+# ✅ 3. FUNÇÃO PRINCIPAL DE BUSCA DE PNEU - IMPLEMENTAÇÃO CORRIGIDA
+# =================================================================
+async def get_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
     if cache_key in wheel_cache:
         return wheel_cache[cache_key]
@@ -113,7 +115,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
 
-        mod_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+        mod_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification=&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
@@ -126,7 +128,6 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         for mod_data in data_list:
             wheels = mod_data.get("wheels", [])
             if not isinstance(wheels, list):
-                logger.warning(f"[WHEEL] wheels não é lista ou está vazio: {wheels}")
                 continue
 
             for wheel in wheels:
@@ -135,26 +136,22 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
                 for eixo in ["front", "rear"]:
                     eixo_data = wheel.get(eixo, {})
-                    logger.info(f"[DEBUG] eixo={eixo}, eixo_data={eixo_data}")
-
                     if not isinstance(eixo_data, dict):
                         continue
 
                     tire_full = eixo_data.get("tire_full", "")
                     if isinstance(tire_full, str) and tire_full:
                         medida = tire_full.split()[0]
-                        logger.info(f"[WHEEL] Medida encontrada via tire_full no eixo {eixo}: {medida}")
                         wheel_cache[cache_key] = medida
                         return medida
 
         logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
         return ""
-
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
         return ""
 
-# Novo endpoint para consulta direta de pneus
+# Endpoint para consulta direta de pneus (usando a nova função)
 @app.get("/pneu-original")
 async def get_pneu_original(
     marca: str = Query(..., example="fiat"),
@@ -163,7 +160,7 @@ async def get_pneu_original(
 ):
     try:
         logger.info(f"[PNEU-EP] Buscando pneu para {marca}/{modelo}/{ano}")
-        medida_pneu = await obter_medida_pneu_por_slug(marca, modelo, ano)
+        medida_pneu = await get_medida_pneu_por_slug(marca, modelo, ano)
         
         if medida_pneu:
             return {"pneu_original": medida_pneu}
@@ -382,7 +379,7 @@ async def buscar_precos_pecas(
                 # Normalizar modelo para busca (usar primeira palavra)
                 modelo_limpo = modelo_nome.split()[0].strip().lower()
                 logger.info(f"[PNEU] Buscando medida para: Marca={marca_nome}, Modelo={modelo_limpo}, Ano={ano_int}")
-                medida_pneu = await obter_medida_pneu_por_slug(
+                medida_pneu = await get_medida_pneu_por_slug(
                     marca=marca_nome, 
                     modelo=modelo_limpo, 
                     ano=ano_int)
@@ -439,19 +436,22 @@ async def buscar_precos_pecas(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
         
-@app.get("/cidades/{uf}")
-async def get_cidades_por_estado(uf: str):
-    try:
-        with open(ARQUIVO_CIDADES, "r", encoding="utf-8") as f:
-            dados = json.load(f)
-        for estado in dados["estados"]:
-            if estado["sigla"].upper() == uf.upper():
-                return estado["cidades"]
-        return []
-    except Exception as e:
-        return {"erro": f"Erro ao carregar cidades: {str(e)}"}
-
+# =================================================================
+# ✅ 4. CHAMADA DENTRO DO RELATÓRIO DE PEÇAS - IMPLEMENTAÇÃO ADICIONADA
+# =================================================================
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+    # ✅ Substituir 'pneu' pela medida exata
+    try:
+        ano_int = int(ano_nome)
+    except:
+        ano_int = datetime.now().year  # fallback
+        
+    for idx, peca in enumerate(pecas_selecionadas):
+        if "pneu" in peca.lower():
+            medida_pneu = await get_medida_pneu_por_slug(marca_nome, modelo_nome, ano_int)
+            if medida_pneu:
+                pecas_selecionadas[idx] = medida_pneu
+
     relatorio = []
     total_abatimento = 0
 
@@ -540,3 +540,15 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         })
 
     return relatorio, total_abatimento
+
+@app.get("/cidades/{uf}")
+async def get_cidades_por_estado(uf: str):
+    try:
+        with open(ARQUIVO_CIDADES, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+        for estado in dados["estados"]:
+            if estado["sigla"].upper() == uf.upper():
+                return estado["cidades"]
+        return []
+    except Exception as e:
+        return {"erro": f"Erro ao carregar cidades: {str(e)}"}
