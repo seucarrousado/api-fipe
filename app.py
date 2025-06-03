@@ -146,7 +146,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
-            modifications = mod_response.json()
+            modifications = mod_response.json().get("data", [])
 
             if not isinstance(modifications, list) or not modifications:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
