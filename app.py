@@ -135,6 +135,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         # Separar nome do modelo (ex: "argo") para slug
         modelo_slug = modelo.split()[0].strip().lower()
         model_slug = await get_model_slug(make_slug, modelo_slug)
+        logger.info(f"[WHEEL] Modelo: {modelo} → Slug retornado: {model_slug}")
 
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
