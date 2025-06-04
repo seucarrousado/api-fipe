@@ -91,8 +91,10 @@ async def get_model_slug(make_slug: str, modelo: str) -> str:
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
+
+        modelo_normalizado = normalizar_slug(modelo)
         for item in data.get("results", []):
-            if item.get("name", "").lower() in modelo.lower():
+            if normalizar_slug(item.get("name", "")) == modelo_normalizado:
                 return item.get("slug", "")
         return ""
     except Exception as e:
