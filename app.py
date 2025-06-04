@@ -263,7 +263,7 @@ async def buscar_precos_pecas(
             lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
             
         marca_nome = marca
-        modelo_nome = modelo.replace("  ", " ").strip()
+        modelo_nome = modelo.lower().split(" ")[0].strip()
         ano_codigo = ano  # Usamos o código completo do ano
 
         valor_fipe = 0
@@ -470,7 +470,9 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
     try:
         make_slug = await get_make_slug(marca)
+        logger.info(f"[DEBUG] Marca recebida: {marca} => slug: {make_slug}")
         model_slug = await get_model_slug(make_slug, modelo)
+        logger.info(f"[DEBUG] Modelo recebido: {modelo} => slug: {model_slug}")
 
         logger.info(f"[WHEEL] Slugs resolvidos - Marca: {marca} -> {make_slug}, Modelo: {modelo} -> {model_slug}")
 
