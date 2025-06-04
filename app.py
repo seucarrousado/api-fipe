@@ -490,6 +490,7 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
+            logger.debug(f"[WHEEL] Resposta bruta da Wheel-Size:\n{json.dumps(data, indent=2)}")
 
         mod_count = len(data.get("data", []))
         logger.info(f"[WHEEL] Total de versões retornadas: {mod_count}")
