@@ -468,63 +468,80 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         return wheel_cache[cache_key]
     
     try:
+        # Obter slugs corretos
         make_slug = await get_make_slug(marca)
-        modelo_base = modelo.split()[0]
+        modelo_base = modelo.split()[0]  # Ex: "Argo" de "Argo 1.0 6V Flex"
         model_slug = await get_model_slug(make_slug, modelo_base)
         
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
         
-        # URL corrigida para modificações
+        # Primeiro tentamos buscar modificações
         mod_url = f"{WHEEL_SIZE_BASE}/modifications/{make_slug}/{model_slug}/{ano}/?user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
-            mod_response = await client.get(mod_url)
-            mod_response.raise_for_status()
-            mod_data = mod_response.json()
-            modifications = mod_data.get("data", [])
-            
-            if not modifications:
-                logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
-                # Buscar sem modificação específica
-                detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+            try:
+                mod_response = await client.get(mod_url)
+                mod_response.raise_for_status()
+                mod_data = mod_response.json()
+                modifications = mod_data.get("data", [])
+                
+                if modifications:
+                    # Usamos a primeira modificação encontrada
+                    mod_slug = modifications[0].get("slug")
+                    detail_url = (
+                        f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}"
+                        f"&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+                    )
+                else:
+                    # Se não encontrar modificações, fazemos consulta direta
+                    logger.warning(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
+                    detail_url = (
+                        f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}"
+                        f"&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+                    )
+                
+                logger.info(f"[WHEEL] Consultando: {detail_url}")
                 detail_response = await client.get(detail_url)
                 detail_response.raise_for_status()
                 vehicle_data = detail_response.json()
-            else:
-                # Usar primeira modificação encontrada
-                mod_slug = modifications[0].get("slug")
-                detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
-                detail_response = await client.get(detail_url)
-                detail_response.raise_for_status()
-                vehicle_data = detail_response.json()
-        
-        vehicles = vehicle_data.get("data", [])
-        if not vehicles:
-            logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
-            return ""
-
-        pneus_validos = []
-        for vehicle in vehicles:
-            for wheel in vehicle.get("wheels", []):
-                if wheel.get("is_stock") and "tire" in wheel:
-                    tire = wheel["tire"]
-                    width = tire.get("section_width")
-                    aspect = tire.get("aspect_ratio")
-                    rim = tire.get("rim_diameter")
-                    if all([width, aspect, rim]):
-                        pneus_validos.append({
-                            "medida": f"{width}/{aspect} R{rim}",
-                            "aro": rim
-                        })
-        
-        if pneus_validos:
-            pneus_validos.sort(key=lambda x: x["aro"])
-            medida = pneus_validos[0]["medida"]
-            wheel_cache[cache_key] = medida
-            return medida
-        
-        return ""
+                vehicles = vehicle_data.get("data", [])
+                
+                if not vehicles:
+                    logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
+                    return ""
+                
+                pneus_validos = []
+                for vehicle in vehicles:
+                    for wheel in vehicle.get("wheels", []):
+                        if wheel.get("is_stock") and "tire" in wheel:
+                            tire = wheel["tire"]
+                            width = tire.get("section_width")
+                            aspect = tire.get("aspect_ratio")
+                            rim = tire.get("rim_diameter")
+                            
+                            if all([width, aspect, rim]):
+                                pneus_validos.append({
+                                    "medida": f"{width}/{aspect} R{rim}",
+                                    "aro": rim
+                                })
+                
+                if pneus_validos:
+                    # Ordenar por aro (priorizar menores)
+                    pneus_validos.sort(key=lambda x: x["aro"])
+                    medida = pneus_validos[0]["medida"]
+                    wheel_cache[cache_key] = medida
+                    return medida
+                
+                logger.warning("[WHEEL] Nenhum pneu original encontrado")
+                return ""
+                
+            except httpx.HTTPStatusError as e:
+                # Tratamento especial para erro 404 (veículo não encontrado)
+                if e.response.status_code == 404:
+                    logger.warning(f"[WHEEL] Veículo não encontrado: {make_slug}/{model_slug}/{ano}")
+                    return ""
+                raise
     
     except Exception as e:
         logger.error(f"[WHEEL] Erro: {str(e)}")
