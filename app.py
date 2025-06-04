@@ -468,89 +468,62 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         return wheel_cache[cache_key]
     
     try:
-        # Obter slugs corretos
         make_slug = await get_make_slug(marca)
-        modelo_base = modelo.split()[0]  # Ex: "Argo" de "Argo 1.0 6V Flex"
+        modelo_base = modelo.split()[0]
         model_slug = await get_model_slug(make_slug, modelo_base)
         
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
         
-        # Buscar modificações disponíveis
-        mod_url = f"{WHEEL_SIZE_BASE}/modifications/?make={make_slug}&model={model_slug}&year={ano}&user_key={WHEEL_SIZE_TOKEN}"
+        # URL corrigida para modificações
+        mod_url = f"{WHEEL_SIZE_BASE}/modifications/{make_slug}/{model_slug}/{ano}/?user_key={WHEEL_SIZE_TOKEN}"
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
-            modifications = mod_response.json()
+            mod_data = mod_response.json()
+            modifications = mod_data.get("data", [])
             
-            if not isinstance(modifications, list) or not modifications:
+            if not modifications:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
-                return ""
-            
-            for mod in modifications:
-                mod_slug = mod.get("slug")
-                if not mod_slug:
-                    continue
-
-                detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+                # Buscar sem modificação específica
+                detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
                 detail_response = await client.get(detail_url)
                 detail_response.raise_for_status()
                 vehicle_data = detail_response.json()
-
-                data_list = vehicle_data.get("data")
-                if not isinstance(data_list, list):
-                    continue
-                for mod_data in data_list:
-                    if not isinstance(mod_data, dict):
-                        continue
-                        
-                        for wheel in mod_data.get("wheels", []):
-                            if wheel.get("is_stock") and "tire" in wheel:
-                                tire = wheel["tire"]
-                                width = tire.get("section_width")
-                                aspect = tire.get("aspect_ratio")
-                                rim = tire.get("rim_diameter")
-
-                                if all([width, aspect, rim]):
-                                    medida = f"{width}/{aspect} R{rim}"
-                                    wheel_cache[cache_key] = medida
-                                    return medida
-
-            # Buscar detalhes do veículo com região correta (ladm = América Latina)
-            detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
-            detail_response = await client.get(detail_url)
-            detail_response.raise_for_status()
-            vehicle_data = detail_response.json()
+            else:
+                # Usar primeira modificação encontrada
+                mod_slug = modifications[0].get("slug")
+                detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={mod_slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+                detail_response = await client.get(detail_url)
+                detail_response.raise_for_status()
+                vehicle_data = detail_response.json()
         
-        if not isinstance(vehicle_data, list) or len(vehicle_data) == 0:
+        vehicles = vehicle_data.get("data", [])
+        if not vehicles:
             logger.error(f"[WHEEL] Dados não encontrados: {detail_url}")
             return ""
 
         pneus_validos = []
-
-        for mod in vehicle_data:
-            for wheel in mod.get("wheels", []):
+        for vehicle in vehicles:
+            for wheel in vehicle.get("wheels", []):
                 if wheel.get("is_stock") and "tire" in wheel:
                     tire = wheel["tire"]
                     width = tire.get("section_width")
                     aspect = tire.get("aspect_ratio")
                     rim = tire.get("rim_diameter")
-
                     if all([width, aspect, rim]):
                         pneus_validos.append({
                             "medida": f"{width}/{aspect} R{rim}",
                             "aro": rim
                         })
-
-        # Ordenar por aro para priorizar os menores (ou altere a lógica se quiser priorizar maiores)
-        pneus_validos.sort(key=lambda x: x["aro"])
-
+        
         if pneus_validos:
+            pneus_validos.sort(key=lambda x: x["aro"])
             medida = pneus_validos[0]["medida"]
             wheel_cache[cache_key] = medida
             return medida
-
+        
         return ""
     
     except Exception as e:
