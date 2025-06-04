@@ -470,7 +470,8 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     try:
         # Obter slugs corretos
         make_slug = await get_make_slug(marca)
-        model_slug = await get_model_slug(make_slug, modelo)
+        modelo_base = modelo.split()[0]  # Ex: "Argo" de "Argo 1.0 6V Flex"
+        model_slug = await get_model_slug(make_slug, modelo_base)
         
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
@@ -483,15 +484,13 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
             mod_response.raise_for_status()
             modifications = mod_response.json()
             
-            if not modifications:
+            if not isinstance(modifications, list) or not modifications:
                 logger.error(f"[WHEEL] Nenhuma modificação para {make_slug}/{model_slug}/{ano}")
                 return ""
             
-            # Buscar a primeira modificação que tenha "is_stock": true na roda
-            mod_slug = None
             for mod in modifications:
-                slug = mod.get("slug")
-                if not slug:
+                mod_slug = mod.get("slug")
+                if not mod_slug:
                     continue
 
                 detail_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification={slug}&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
@@ -499,8 +498,13 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                 detail_response.raise_for_status()
                 vehicle_data = detail_response.json()
 
-                if isinstance(vehicle_data.get("data"), list):
-                    for mod_data in vehicle_data["data"]:
+                data_list = vehicle_data.get("data")
+                if not isinstance(data_list, list):
+                    continue
+                for mod_data in data_list:
+                    if not isinstance(mod_data, dict):
+                        continue
+                        
                         for wheel in mod_data.get("wheels", []):
                             if wheel.get("is_stock") and "tire" in wheel:
                                 tire = wheel["tire"]
