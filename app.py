@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
 from cachetools import TTLCache
@@ -10,6 +10,7 @@ from datetime import datetime
 import json
 import re
 import unicodedata
+import urllib.parse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -284,9 +285,10 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
 @app.get("/pecas")
 async def buscar_precos_pecas(
-    marca: str, 
-    modelo: str, 
-    ano: str,
+    request: Request,
+    marca: str = Query(None), 
+    modelo: str = Query(None), 
+    ano: str = Query(None),
     pecas: str = Query(""), 
     fipe_code: str = Query(None), 
     km: float = Query(0.0),
@@ -295,35 +297,46 @@ async def buscar_precos_pecas(
     ipva_valor: float = Query(0.0),
     peca_extra: str = Query("")
 ):
-    logger.info("\n" + "="*80)
-    logger.info("🏁 INICIANDO CONSULTA DE PEÇAS")
-    logger.info(f"🔧 Parâmetros recebidos:")
-    logger.info(f"  marca: {marca}")
-    logger.info(f"  modelo: {modelo}")
-    logger.info(f"  ano: {ano}")
-    logger.info(f"  pecas: {pecas}")
-    logger.info(f"  fipe_code: {fipe_code}")
-    logger.info(f"  km: {km}")
-    logger.info(f"  estado_interior: {estado_interior}")
-    logger.info(f"  estado_exterior: {estado_exterior}")
-    logger.info(f"  ipva_valor: {ipva_valor}")
-    logger.info(f"  peca_extra: {peca_extra}")
-    logger.info("="*80)
-    
     try:
-        from urllib.parse import unquote
-
-        marca = unquote(marca)
-        modelo = unquote(modelo)
-        pecas = unquote(pecas)
+        # Diagnóstico completo
+        logger.info("\n" + "="*80)
+        logger.info("🔍 DIAGNÓSTICO INICIADO")
+        logger.info(f"📦 Query String Completa: {request.query_params}")
         
-        logger.debug(f"Parâmetros decodificados:")
-        logger.debug(f"  marca: {marca}")
-        logger.debug(f"  modelo: {modelo}")
-        logger.debug(f"  pecas: {pecas}")
+        # Decodificar manualmente todos os parâmetros
+        query_str = str(request.query_params)
+        parsed_qs = urllib.parse.parse_qs(query_str)
+        
+        logger.info("📋 Parâmetros decodificados:")
+        for key, value in parsed_qs.items():
+            logger.info(f"  {key}: {value}")
+        
+        # Extração robusta de parâmetros
+        marca = urllib.parse.unquote(parsed_qs.get('marca', [''])[0])
+        modelo = urllib.parse.unquote(parsed_qs.get('modelo', [''])[0])
+        ano = urllib.parse.unquote(parsed_qs.get('ano', [''])[0])
+        pecas = urllib.parse.unquote(parsed_qs.get('pecas', [''])[0])
+        peca_extra = urllib.parse.unquote(parsed_qs.get('peca_extra', [''])[0])
+        fipe_code = urllib.parse.unquote(parsed_qs.get('fipe_code', [''])[0]) if 'fipe_code' in parsed_qs else None
+        
+        logger.info("\n" + "="*80)
+        logger.info("🏁 INICIANDO CONSULTA DE PEÇAS")
+        logger.info(f"🔧 Parâmetros extraídos:")
+        logger.info(f"  marca: {marca}")
+        logger.info(f"  modelo: {modelo}")
+        logger.info(f"  ano: {ano}")
+        logger.info(f"  pecas: {pecas}")
+        logger.info(f"  fipe_code: {fipe_code}")
+        logger.info(f"  km: {km}")
+        logger.info(f"  estado_interior: {estado_interior}")
+        logger.info(f"  estado_exterior: {estado_exterior}")
+        logger.info(f"  ipva_valor: {ipva_valor}")
+        logger.info(f"  peca_extra: {peca_extra}")
+        logger.info("="*80)
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         
+        # Adicionar peças extras se existirem
         if peca_extra and peca_extra.strip():
             lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
         
@@ -356,12 +369,14 @@ async def buscar_precos_pecas(
                     logger.warning("🚫 Valor FIPE não encontrado na resposta")
                     raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
+                # Encontrar o valor específico para o ano_codigo
                 valor_encontrado = None
                 for item in valores:
                     if item.get("year_id") == ano_codigo:
                         valor_encontrado = item.get("price")
                         break
                 
+                # Se não encontrar, usar o primeiro valor disponível
                 if not valor_encontrado and valores:
                     valor_encontrado = valores[0]["price"]
                     logger.warning("⚠️ Usando primeiro valor FIPE disponível")
@@ -374,6 +389,7 @@ async def buscar_precos_pecas(
                 cache[cache_key] = valor_fipe
                 logger.info(f"✅ Valor FIPE encontrado: R${valor_fipe:,.2f}")
 
+        # Verificar termos de pneu
         termos_pneu = ["pneu", "pneus", "pneuss", "pneuz", "roda", "rodas"]
         tem_pneu = any(
             any(termo in peca.lower() for termo in termos_pneu)
@@ -396,9 +412,11 @@ async def buscar_precos_pecas(
                     nova_lista = []
                     for peca in lista_pecas:
                         if any(termo in peca.lower() for termo in termos_pneu):
+                            # Detecta quantidade
                             qtd_match = re.search(r'\d+', peca)
                             qtd = qtd_match.group() if qtd_match else "4"
                             
+                            # Garante mínimo de 2 pneus
                             if int(qtd) < 2:
                                 qtd = "4"
                                 logger.warning("⚠️ Quantidade de pneus ajustada para 4 (mínimo não atendido)")
@@ -423,6 +441,7 @@ async def buscar_precos_pecas(
         )
         logger.info(f"✅ Busca de peças concluída. Total em peças: R${total_pecas:,.2f}")
         
+        # Calcular todos os descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
         desconto_km = calcular_desconto_km(km, valor_fipe, ano_codigo.split('-')[0])
         ipva_desconto = ipva_valor
@@ -433,7 +452,10 @@ async def buscar_precos_pecas(
         logger.debug(f"  IPVA: R${ipva_desconto:,.2f}")
         logger.debug(f"  Peças: R${total_pecas:,.2f}")
         
+        # SOMA de todos os descontos
         total_descontos = desconto_estado + desconto_km + ipva_desconto + total_pecas
+        
+        # Calcular valor final
         valor_final = valor_fipe - total_descontos
 
         logger.info("📊 Resultado final:")
@@ -599,4 +621,4 @@ async def get_pneu_original(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=10000)
