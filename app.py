@@ -498,7 +498,17 @@ async def obter_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
         for mod in data.get("data", []):
             for wheel in mod.get("wheels", []):
                 if wheel.get("is_stock"):
-                    tire = wheel.get("front", {}).get("tire_full")
+                    front = wheel.get("front", {})
+                    tire = front.get("tire_full")
+
+                    # Se não tiver o tire_full direto, tenta montar manualmente
+                    if not tire:
+                        width = front.get("section_width")
+                        aspect = front.get("aspect_ratio")
+                        rim = front.get("rim_diameter")
+    
+                        if all([width, aspect, rim]):
+                            tire = f"{width}/{aspect} R{rim}"
                     if tire:
                         logger.info(f"[WHEEL] Medida de pneu original identificada: {tire}")
                         wheel_cache[cache_key] = tire
