@@ -319,6 +319,12 @@ async def buscar_precos_pecas(
         peca_extra = urllib.parse.unquote(parsed_qs.get('peca_extra', [''])[0])
         fipe_code = urllib.parse.unquote(parsed_qs.get('fipe_code', [''])[0]) if 'fipe_code' in parsed_qs else None
         
+        # Fallback para peca_extra
+        if not pecas.strip() and peca_extra.strip():
+            logger.warning("⚠️ 'pecas' vazio, usando 'peca_extra' como fallback")
+            pecas = peca_extra
+            peca_extra = ""
+        
         logger.info("\n" + "="*80)
         logger.info("🏁 INICIANDO CONSULTA DE PEÇAS")
         logger.info(f"🔧 Parâmetros extraídos:")
@@ -334,13 +340,12 @@ async def buscar_precos_pecas(
         logger.info(f"  peca_extra: {peca_extra}")
         logger.info("="*80)
         
+        # Processar lista de peças
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
-        
-        # Adicionar peças extras se existirem
         if peca_extra and peca_extra.strip():
             lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
         
-        logger.info(f"📋 Lista de peças processada: {lista_pecas}")
+        logger.info(f"📋 Lista de peças inicial: {lista_pecas}")
         logger.info(f"🔢 Número de peças: {len(lista_pecas)}")
         
         marca_nome = marca
@@ -389,7 +394,9 @@ async def buscar_precos_pecas(
                 cache[cache_key] = valor_fipe
                 logger.info(f"✅ Valor FIPE encontrado: R${valor_fipe:,.2f}")
 
-        # Verificar termos de pneu
+        # ================================================================================
+        # PROCESSAMENTO DE PNEUS - DEVE ACONTECER ANTES DA BUSCA GERAL DE PEÇAS
+        # ================================================================================
         termos_pneu = ["pneu", "pneus", "pneuss", "pneuz", "roda", "rodas"]
         tem_pneu = any(
             any(termo in peca.lower() for termo in termos_pneu)
@@ -399,9 +406,14 @@ async def buscar_precos_pecas(
         if tem_pneu:
             logger.info("🛞 Detectado termo de pneu na lista de peças")
             try:
-                ano_int = int(ano_codigo.split('-')[0])
-                logger.info(f"🔍 Buscando medida de pneu para {marca_nome} {modelo_nome} {ano_int}")
+                # Converter ano para inteiro (removendo sufixo)
+                try:
+                    ano_int = int(ano_codigo.split('-')[0])
+                except:
+                    ano_int = datetime.now().year
+                    logger.warning(f"⚠️ Falha ao converter ano, usando {ano_int} como fallback")
                 
+                # Chamar Wheel-Size API para obter medidas
                 medida_pneu = await obter_medida_pneu_por_slug(
                     marca=marca_nome, 
                     modelo=modelo_nome, 
@@ -409,32 +421,38 @@ async def buscar_precos_pecas(
                 
                 if medida_pneu:
                     logger.info(f"✅ Medida de pneu obtida: {medida_pneu}")
+                    
+                    # Substituir termos genéricos por medidas específicas
                     nova_lista = []
                     for peca in lista_pecas:
                         if any(termo in peca.lower() for termo in termos_pneu):
-                            # Detecta quantidade
+                            # Extrair quantidade
                             qtd_match = re.search(r'\d+', peca)
                             qtd = qtd_match.group() if qtd_match else "4"
                             
-                            # Garante mínimo de 2 pneus
+                            # Garantir mínimo de 2 pneus
                             if int(qtd) < 2:
                                 qtd = "4"
                                 logger.warning("⚠️ Quantidade de pneus ajustada para 4 (mínimo não atendido)")
                             
                             nova_peca = f"{qtd} pneus {medida_pneu}"
                             nova_lista.append(nova_peca)
-                            logger.debug(f"🔀 Substituído: '{peca}' → '{nova_peca}'")
+                            logger.info(f"🔀 Substituído: '{peca}' → '{nova_peca}'")
                         else:
                             nova_lista.append(peca)
+                    
                     lista_pecas = nova_lista
-                    logger.info(f"📝 Nova lista de peças: {lista_pecas}")
+                    logger.info(f"📝 Lista de peças atualizada: {lista_pecas}")
                 else:
                     logger.warning("⚠️ Medida de pneu não encontrada. Mantendo termos originais.")
             except Exception as e:
-                logger.error(f"❌ Erro crítico na substituição de pneus: {str(e)}")
+                logger.error(f"❌ Erro crítico no processamento de pneus: {str(e)}")
         else:
             logger.info("⏭️ Nenhum termo de pneu detectado. Pulando substituição.")
 
+        # ================================================================================
+        # BUSCA GERAL DE PEÇAS (APÓS PROCESSAMENTO DE PNEUS)
+        # ================================================================================
         logger.info("🔍 Iniciando busca de preços para peças...")
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
