@@ -66,6 +66,12 @@ class FipeQuery(BaseModel):
             raise ValueError('Campo obrigatório não pode ser vazio.')
         return v
 
+# Função utilitária para normalizar slugs
+def normalizar_slug(texto):
+    texto = texto.lower().strip()
+    texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
+    return texto.replace(" ", "").replace("-", "")
+
 # =================================================================
 # ✅ 2. FUNÇÕES AUXILIARES (SLUGs) - IMPLEMENTAÇÃO CORRIGIDA
 # =================================================================
