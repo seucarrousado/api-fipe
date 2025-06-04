@@ -82,7 +82,7 @@ async def get_make_slug(marca: str) -> str:
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
-        for item in data.get("results", []):
+        for item in data.get("data", []):
             if item.get("name", "").lower() == marca.lower():
                 return item.get("slug", "")
         return ""
@@ -159,7 +159,8 @@ async def get_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                     tire_full = eixo_data.get("tire_full", "")
                     if isinstance(tire_full, str) and tire_full:
                         medida = tire_full.split()[0]
-                        wheel_cache[cache_key] = medida
+                        if medida:
+                            wheel_cache[cache_key] = medida
                         logger.info(f"[WHEEL] Medida encontrada: {medida}")
                         return medida
 
