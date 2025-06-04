@@ -104,29 +104,37 @@ async def get_model_slug(make_slug: str, modelo: str) -> str:
 # =================================================================
 async def get_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
     cache_key = f"pneu_measure:{marca}:{modelo}:{ano}"
+    logger.info(f"[WHEEL] Iniciando busca de medida para: {cache_key}")
     if cache_key in wheel_cache:
+        logger.info(f"[WHEEL] Medida encontrada no cache para: {cache_key}")
         return wheel_cache[cache_key]
 
     try:
         make_slug = await get_make_slug(marca)
         model_slug = await get_model_slug(make_slug, modelo)
-
+        logger.info(f"[WHEEL] Medida encontrada no cache para: {cache_key}")
+        
         if not make_slug or not model_slug:
             logger.error(f"[WHEEL] Slugs não encontrados: marca={marca}->{make_slug}, modelo={modelo}->{model_slug}")
             return ""
 
         mod_url = f"{WHEEL_SIZE_BASE}/search/by_model/?make={make_slug}&model={model_slug}&year={ano}&modification=&region=ladm&user_key={WHEEL_SIZE_TOKEN}"
+        logger.info(f"[WHEEL] URL da consulta: {mod_url}")
+        
         async with httpx.AsyncClient() as client:
             mod_response = await client.get(mod_url)
             mod_response.raise_for_status()
             vehicle_data = mod_response.json()
+            logger.info(f"[WHEEL] Dados recebidos da API: {vehicle_data.keys()}")
 
         data_list = vehicle_data.get("data")
         if not isinstance(data_list, list):
+            logger.warning(f"[WHEEL] Lista 'data' ausente ou inválida: {data_list}")
             return ""
 
         for mod_data in data_list:
             wheels = mod_data.get("wheels", [])
+            logger.debug(f"[WHEEL] wheels: {wheels}")
             if not isinstance(wheels, list):
                 continue
 
@@ -136,6 +144,7 @@ async def get_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
 
                 for eixo in ["front", "rear"]:
                     eixo_data = wheel.get(eixo, {})
+                    logger.debug(f"[WHEEL] eixo={eixo}, eixo_data={eixo_data}")
                     if not isinstance(eixo_data, dict):
                         continue
 
@@ -143,6 +152,7 @@ async def get_medida_pneu_por_slug(marca: str, modelo: str, ano: int) -> str:
                     if isinstance(tire_full, str) and tire_full:
                         medida = tire_full.split()[0]
                         wheel_cache[cache_key] = medida
+                        logger.info(f"[WHEEL] Medida encontrada: {medida}")
                         return medida
 
         logger.warning(f"[WHEEL] Nenhuma medida encontrada via tire_full para {marca}/{modelo}/{ano}")
