@@ -334,7 +334,7 @@ async def buscar_precos_pecas(
                     logger.info(f"[PNEU] Medida obtida: {medida_pneu}")
                     nova_lista = []
                     for peca in lista_pecas:
-                        if "pneu" in peca.lower():
+                        if "pneu" in peca.lower() or "pneus" in peca.lower() or re.search(r"\bpne(u|us)?\b", peca.lower()):
                             # Detecta quantidade (2 ou 4 pneus)
                             qtd = "4" if any(k in peca.lower() for k in ["4", "quatro", "jogo"]) else "2"
                             nova_lista.append(f"{qtd} pneus {medida_pneu}")
