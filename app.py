@@ -255,8 +255,20 @@ async def buscar_precos_pecas(
         marca = unquote(marca)
         modelo = unquote(modelo)
         pecas = unquote(pecas)
+        logger.info("[DEBUG] --- Início da função /pecas ---")
+        logger.info(f"[DEBUG] Parâmetro 'pecas' recebido: {pecas}")
+        logger.info(f"[DEBUG] Marca: {marca}, Modelo: {modelo}, Ano: {ano}")
+        logger.info(f"[DEBUG] fipe_code: {fipe_code}, KM: {km}")
+        logger.info(f"[DEBUG] Estado Interior: {estado_interior}, Estado Exterior: {estado_exterior}")
+        logger.info(f"[DEBUG] IPVA Valor: {ipva_valor}")
+        logger.info(f"[DEBUG] Peça extra: {peca_extra}")
         
-        lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
+        lista_pecas = [
+        p.strip() for p in pecas.split(",") 
+        if p.strip() and "=" not in p and not any(
+            termo in p.lower() for termo in ["ipva", "fipe", "interior", "exterior", "km"]
+        )
+    ]
         
         # Adicionar peças extras se existirem
         if peca_extra and peca_extra.strip():
@@ -329,6 +341,10 @@ async def buscar_precos_pecas(
                         else:
                             nova_lista.append(peca)
                     lista_pecas = nova_lista
+                    lista_pecas = [
+                        p for p in lista_pecas
+                        if "=" not in p and not any(t in p.lower() for t in ["ipva", "fipe", "interior", "exterior", "km"])
+                    ]
                 else:
                     logger.warning("[PNEU] Medida não encontrada. Mantendo termo original.")
             except Exception as e:
