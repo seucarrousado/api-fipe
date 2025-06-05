@@ -385,7 +385,13 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         if cache_key in peca_cache:
             return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key]}
         
-        termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+        # Tratamento especial para pneus com medida
+        import re
+        peca_limpa = peca.strip().lower()
+        if re.search(r"\d{3}/\d{2}\s*r\d{2}", peca_limpa):  # Ex: 175/60 R14
+            termo_busca = f"pneu {peca_limpa.replace('pneu', '').strip()}"
+        else:
+            termo_busca = f"{marca_nome} {modelo_nome} {ano_nome} {peca}".replace("  ", " ").strip()
         payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
         
         try:
