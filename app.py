@@ -428,6 +428,10 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+                logger.info(f"[APIFY] 🔍 Termo de busca montado: {termo_busca}")
+                logger.info(f"[APIFY] 🔧 Payload enviado: {json.dumps(payload, ensure_ascii=False)}")
+                logger.info(f"[APIFY] 🌐 URL chamada: {api_url}")
+                
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 dados_completos = response.json()
@@ -437,7 +441,10 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 return {"sucesso": True, "peca": peca, "dados": dados_completos}
         except Exception as e:
             return {"sucesso": False, "peca": peca, "erro": str(e)}
-
+            
+    for peca in pecas_selecionadas:
+        logger.info(f"[DEBUG] 🧩 Peça individual enviada para Apify: {peca}")
+    
     tasks = [processar_peca(peca) for peca in pecas_selecionadas]
     resultados = await asyncio.gather(*tasks)
     
