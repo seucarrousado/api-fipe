@@ -336,10 +336,16 @@ async def buscar_precos_pecas(
                     logger.info(f"[PNEU] Medida obtida: {medida_pneu}")
                     nova_lista = []
                     for peca in lista_pecas:
-                        if "pneu" in peca.lower() or "pneus" in peca.lower() or re.search(r"\bpne(u|us)?\b", peca.lower()):
-                            # Detecta quantidade (2 ou 4 pneus)
-                            qtd = "4" if any(k in peca.lower() for k in ["4", "quatro", "jogo"]) else "2"
+                        termo_normalizado = unicodedata.normalize("NFKD", peca.lower()).encode("ascii", "ignore").decode("utf-8")
+    
+                        if "pneu" in termo_normalizado or "pneus" in termo_normalizado or re.search(r"\bpne(u|us)?\b", termo_normalizado):
+                            qtd = "4" if any(k in termo_normalizado for k in ["4", "quatro", "jogo"]) else "2"
                             nova_lista.append(f"{qtd} pneus {medida_pneu}")
+    
+                        elif termo_normalizado.strip() in ["2", "4", "jogo", "jogo completo"]:
+                            qtd = "4" if termo_normalizado.strip() in ["4", "jogo", "jogo completo"] else "2"
+                            nova_lista.append(f"{qtd} pneus {medida_pneu}")
+    
                         else:
                             nova_lista.append(peca)
                     lista_pecas = nova_lista
