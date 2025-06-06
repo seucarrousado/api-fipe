@@ -8,7 +8,7 @@ import os
 import asyncio
 from datetime import datetime
 import re
-from unidecode import unidecode  # Importação corrigida
+import unidecode  # Adicionado para normalização de textos
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -17,7 +17,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Permite todos para teste, ajuste em produção
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,7 +44,7 @@ BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
-WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
+WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")  # Adicionado token da Wheel Size
 cache = TTLCache(maxsize=100, ttl=3600)
 
 class FipeQuery(BaseModel):
@@ -138,8 +138,8 @@ async def consultar_fipe(fipe_code: str):
 # Função para criar slugs
 def criar_slug(texto):
     """Cria um slug consistente para comparação de strings"""
-    # Remove acentos usando unidecode
-    texto = unidecode(texto)
+    # Remove acentos
+    texto = unidecode.unidecode(texto)
     # Converte para minúsculas
     texto = texto.lower()
     # Remove caracteres especiais e substitui por hífens
@@ -156,9 +156,9 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
         modelo: texto (ex: "Argo Drive")
         ano_id: string no formato "AAAA-X" (ex: "2022-1")
     """
-    # Extrair ano base e trim ID
+    # Extrair apenas o ano base (AAAA) do ano_id
     try:
-        ano_base, trim_id = ano_id.split('-')
+        ano_base = ano_id.split('-')[0]  # Pega apenas o ano (ex: "2022")
     except:
         return {"erro": "Formato de ano inválido"}
 
@@ -259,6 +259,7 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
     
+    # Desconto baseado no estado do interior
     if interior == "otimo":
         desconto += 0
     elif interior == "bom":
@@ -268,6 +269,7 @@ def calcular_desconto_estado(interior, exterior, valor_fipe):
     elif interior == "ruim":
         desconto += valor_fipe * 0.05
     
+    # Desconto baseado no estado do exterior
     if exterior == "otimo":
         desconto += 0
     elif exterior == "bom":
@@ -296,7 +298,7 @@ def calcular_desconto_km(km, valor_fipe, ano):
 async def buscar_precos_pecas(
     marca: str, 
     modelo: str, 
-    ano: str,
+    ano: str,  # Recebe o código completo do ano (ex: "1995-1")
     pecas: str = Query(""), 
     fipe_code: str = Query(None), 
     km: float = Query(0.0),
@@ -314,10 +316,11 @@ async def buscar_precos_pecas(
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
-        ano_codigo = ano
+        ano_codigo = ano  # Usamos o código completo do ano
 
         valor_fipe = 0
         if fipe_code:
+            # Criar chave de cache única com fipe_code + ano_codigo
             cache_key = f"{fipe_code}-{ano_codigo}"
             
             if cache_key in cache:
@@ -333,12 +336,14 @@ async def buscar_precos_pecas(
                 if not valores:
                     raise HTTPException(status_code=404, detail="Valor FIPE não encontrado")
 
+                # Encontrar o valor específico para o ano_codigo
                 valor_encontrado = None
                 for item in valores:
                     if item.get("year_id") == ano_codigo:
                         valor_encontrado = item.get("price")
                         break
-                    
+                
+                # Se não encontrar, usar o primeiro valor disponível
                 if not valor_encontrado and valores:
                     valor_encontrado = valores[0]["price"]
                     
@@ -352,12 +357,15 @@ async def buscar_precos_pecas(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
         )
         
+        # Calcular todos os descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
         desconto_km = calcular_desconto_km(km, valor_fipe, ano_codigo.split('-')[0])
         ipva_desconto = ipva_valor
         
+        # SOMA de todos os descontos
         total_descontos = desconto_estado + desconto_km + ipva_desconto + total_pecas
         
+        # Calcular valor final CORRETAMENTE
         valor_final = valor_fipe - total_descontos
 
         return {
@@ -397,6 +405,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
+    # REMOVIDO: Filtro de pneus
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
     logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
@@ -409,7 +418,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             if not peca or peca.lower() == "não":
                 continue
 
-            # Tratamento para pneus
+            # NOVO TRATAMENTO PARA PNEUS
             if peca.strip().lower().startswith("kit pneus"):
                 termo_busca = peca.strip()   # Termo exato para pneus
             else:
@@ -457,7 +466,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 for item in dados_completos[:5]:
                     logger.info(f"[DEBUG] Produto bruto: {item}")
 
-                    # Só aplicar filtro se não for pneu
+                    # NOVO: Só aplicar filtro se não for pneu
                     if not peca.strip().lower().startswith("kit pneus"):
                         titulo = item.get("eTituloProduto", "").lower()
                         modelo_normalizado = modelo_nome.lower().split()[0]
