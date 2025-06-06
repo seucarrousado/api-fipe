@@ -263,16 +263,18 @@ async def buscar_precos_pecas(
         logger.info(f"[DEBUG] IPVA Valor: {ipva_valor}")
         logger.info(f"[DEBUG] Peça extra: {peca_extra}")
         
+        logger.info(f"[DEBUG] valor bruto de pecas: {pecas}")
+
         lista_pecas = [
-        p.strip() for p in pecas.split(",") 
-        if p.strip() and "=" not in p and not any(
-            termo in p.lower() for termo in ["ipva", "fipe", "interior", "exterior", "km"]
-        )
-    ]
+            p.strip() for p in pecas.split(",")
+            if p.strip()
+        ]
         
         # Adicionar peças extras se existirem
-        if peca_extra and peca_extra.strip():
+        if peca_extra:
             lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
+
+        logger.info(f"[DEBUG] lista_pecas após adicionar peca_extra: {lista_pecas}")
             
         marca_nome = marca
         modelo_nome = modelo.lower().split(" ")[0].strip()
@@ -343,8 +345,14 @@ async def buscar_precos_pecas(
                     lista_pecas = nova_lista
                     lista_pecas = [
                         p for p in lista_pecas
-                        if "=" not in p and not any(t in p.lower() for t in ["ipva", "fipe", "interior", "exterior", "km"])
+                        if "=" not in p and not any(
+                            termo in unicodedata.normalize("NFKD", p.lower()).encode("ascii", "ignore").decode("utf-8")
+                            for termo in ["ipva", "fipe", "interior", "exterior", "km"]
+                        )
                     ]
+
+                logger.info(f"[TESTE FINAL] lista_pecas enviada para Apify: {lista_pecas}")
+                
                 else:
                     logger.warning("[PNEU] Medida não encontrada. Mantendo termo original.")
             except Exception as e:
