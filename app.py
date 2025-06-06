@@ -7,7 +7,6 @@ import logging
 import os
 import asyncio
 from datetime import datetime
-import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -16,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Permite todos para teste, ajuste em produção
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,8 +42,7 @@ BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
-cache = TTLCache(maxsize=100, ttl=3600)  # Cache para FIPE
-peca_cache = TTLCache(maxsize=500, ttl=86400)  # Cache para peças (24 horas)
+cache = TTLCache(maxsize=100, ttl=3600)
 
 class FipeQuery(BaseModel):
     marca: str
@@ -182,8 +180,7 @@ async def buscar_precos_pecas(
     km: float = Query(0.0),
     estado_interior: str = Query(""), 
     estado_exterior: str = Query(""),
-    ipva_valor: float = Query(0.0),
-    peca_extra: str = Query("")  # Novo parâmetro para peças extras
+    ipva_valor: float = Query(0.0)
 ):
     try:
         from urllib.parse import unquote
@@ -193,11 +190,6 @@ async def buscar_precos_pecas(
         pecas = unquote(pecas)
         
         lista_pecas = [p.strip() for p in pecas.split(",") if p.strip()]
-        
-        # ADICIONAR PEÇAS EXTRAS SE EXISTIREM
-        if peca_extra and peca_extra.strip():
-            lista_pecas.extend([p.strip() for p in peca_extra.split(",") if p.strip()])
-            
         marca_nome = marca
         modelo_nome = modelo.replace("  ", " ").strip()
         ano_codigo = ano  # Usamos o código completo do ano
@@ -269,6 +261,8 @@ async def buscar_precos_pecas(
         
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
+    import os
+    import json
     try:
         with open(ARQUIVO_CIDADES, "r", encoding="utf-8") as f:
             dados = json.load(f)
@@ -278,93 +272,114 @@ async def get_cidades_por_estado(uf: str):
         return []
     except Exception as e:
         return {"erro": f"Erro ao carregar cidades: {str(e)}"}
-
+        
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+    import logging
+    import httpx
+
+    logger = logging.getLogger("calculadora_fipe")
     relatorio = []
     total_abatimento = 0
 
-    # Função para processar cada peça individualmente
-    async def processar_peca(peca):
-        cache_key = f"{marca_nome}-{modelo_nome}-{ano_nome}-{peca}"
-        if cache_key in peca_cache:
-            return {"sucesso": True, "peca": peca, "dados": peca_cache[cache_key]}
-        
-        termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
-        payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
-        
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:  # Timeout de 20 segundos
-                api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
-                response = await client.post(api_url, json=payload)
-                response.raise_for_status()
-                dados_completos = response.json()
-                
-                # Armazena no cache
-                peca_cache[cache_key] = dados_completos
-                return {"sucesso": True, "peca": peca, "dados": dados_completos}
-                
-        except Exception as e:
-            return {"sucesso": False, "peca": peca, "erro": str(e)}
-    
-    # Processa todas as peças em paralelo
-    tasks = [processar_peca(peca) for peca in pecas_selecionadas]
-    resultados = await asyncio.gather(*tasks)
-    
-    # Processa resultados
-    for resultado in resultados:
-        if not resultado["sucesso"]:
-            relatorio.append({"item": resultado["peca"], "erro": resultado["erro"]})
-            continue
-            
-        dados = resultado["dados"]
-        if not dados:
-            relatorio.append({"item": resultado["peca"], "erro": "Nenhum resultado encontrado."})
-            continue
+    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
-        precos = []
-        links = []
-        imagens = []
-        nomes = []
-        precos_texto = []
+    logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
+    logger.info(f"[DEBUG] URL Apify: {api_url}")
+    logger.info(f"[DEBUG] Peças Selecionadas: {pecas_selecionadas}")
+    logger.info(f"[DEBUG] Marca: {marca_nome}, Modelo: {modelo_nome}, Ano: {ano_nome}")
 
-        modelo_keywords = modelo_nome.lower().split()[:2]  # Pega as duas primeiras palavras do modelo
-
-        for item in dados[:5]:  # Limita a 5 itens
-            titulo = item.get("eTituloProduto", "").lower()
-            
-            # Verifica se pelo menos uma palavra-chave do modelo está no título
-            if not any(kw in titulo for kw in modelo_keywords):
+    async with httpx.AsyncClient(timeout=60) as client:
+        for peca in pecas_selecionadas:
+            if not peca or peca.lower() == "não":
                 continue
 
-            preco_str = item.get("novoPreco")
-            if not preco_str:
-                continue
+            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+            payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
+            logger.info(f"[DEBUG] Buscando peça: {termo_busca} | Payload: {payload}")
 
             try:
-                preco = float(str(preco_str).replace(".", "").replace(",", "."))
-                precos.append(preco)
-                links.append(item.get("zProdutoLink", ""))
-                imagens.append(item.get("imagemLink", ""))
-                nomes.append(item.get("eTituloProduto", ""))
-                precos_texto.append(preco_str)  
-            except Exception:
-                continue
+                response = await client.post(api_url, json=payload)
+                logger.info(f"[DEBUG] Status Apify: {response.status_code}")
 
-        if not precos:
-            relatorio.append({"item": resultado["peca"], "erro": "Nenhum preço válido encontrado."})
-            continue
+                try:
+                    response.raise_for_status()
+                except Exception as e:
+                    logger.error(f"[ERROR] Falha no status da resposta: {e}")
+                    logger.error(f"[ERROR] Corpo da resposta: {response.text}")
+                    relatorio.append({"item": peca, "erro": "Erro HTTP ao acessar o Apify."})
+                    continue
 
-        preco_medio = round(sum(precos) / len(precos), 2)
-        total_abatimento += preco_medio
+                try:
+                    dados_completos = response.json()
+                    logger.info(f"[DEBUG] Tipo da resposta: {type(dados_completos)}")
+                    logger.info(f"[DEBUG] Conteúdo bruto da resposta Apify: {dados_completos}")
+                except Exception as e:
+                    logger.error(f"[ERROR] Falha ao ler JSON: {str(e)}")
+                    relatorio.append({"item": peca, "erro": "Resposta do Apify inválida (JSON)."})
+                    continue
 
-        relatorio.append({
-            "item": resultado["peca"],
-            "preco_medio": preco_medio,
-            "abatido": preco_medio,
-            "links": links[:3],
-            "imagens": imagens[:3],
-            "nomes": nomes[:3],
-            "precos": precos_texto[:3]
-        })
+                if not isinstance(dados_completos, list):
+                    logger.error(f"[ERROR] Resposta do Apify não é uma lista: {type(dados_completos)}")
+                    relatorio.append({"item": peca, "erro": "Formato de resposta inesperado."})
+                    continue
 
+                if not dados_completos:
+                    relatorio.append({"item": peca, "erro": "Nenhum resultado encontrado."})
+                    continue
+
+                precos = []
+                links = []
+                imagens = []
+                nomes = []
+                precos_texto = []
+
+                for item in dados_completos[:5]:
+                    logger.info(f"[DEBUG] Produto bruto: {item}")
+
+                    titulo = item.get("eTituloProduto", "").lower()
+                    modelo_normalizado = modelo_nome.lower().split()[0]
+                    peca_normalizada = peca.lower().split()[0]
+
+                    if peca_normalizada not in titulo or modelo_normalizado not in titulo:
+                        logger.info(f"[DEBUG] Ignorado: título irrelevante → {titulo}")
+                        continue
+
+                    preco_str = item.get("novoPreco")
+                    if not preco_str:
+                        logger.warning(f"[WARN] Produto sem preço válido: {item}")
+                        continue
+
+                    try:
+                        preco = float(str(preco_str).replace(".", "").replace(",", "."))
+                        precos.append(preco)
+                        links.append(item.get("zProdutoLink", ""))
+                        imagens.append(item.get("imagemLink", ""))
+                        nomes.append(item.get("eTituloProduto", ""))
+                        precos_texto.append(preco_str)  
+                    except Exception as e:
+                        logger.warning(f"[WARN] Erro ao converter preço: {preco_str} | {e}")
+                        continue
+
+                if not precos:
+                    relatorio.append({"item": peca, "erro": "Nenhum preço válido encontrado."})
+                    continue
+
+                preco_medio = round(sum(precos) / len(precos), 2)
+                total_abatimento += preco_medio
+
+                relatorio.append({
+                    "item": peca,
+                    "preco_medio": preco_medio,
+                    "abatido": preco_medio,
+                    "links": links[:3],
+                    "imagens": imagens[:3],
+                    "nomes": nomes[:3],
+                    "precos": precos_texto[:3]
+                })
+
+            except Exception as e:
+                logger.error(f"[ERROR] Erro inesperado ao buscar preços via Apify: {str(e)}")
+                relatorio.append({"item": peca, "erro": f"Erro inesperado ao buscar preços: {str(e)}"})
+
+    logger.info(f"[DEBUG] Relatório final: {relatorio}")
     return relatorio, total_abatimento
