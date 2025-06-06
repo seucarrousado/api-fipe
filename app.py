@@ -7,6 +7,8 @@ import logging
 import os
 import asyncio
 from datetime import datetime
+import re
+import unidecode  # Adicionado para normalização de textos
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -42,6 +44,7 @@ BASE_URL = "https://api.invertexto.com/v1/fipe"
 TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
+WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")  # Adicionado token da Wheel Size
 cache = TTLCache(maxsize=100, ttl=3600)
 
 class FipeQuery(BaseModel):
@@ -132,6 +135,127 @@ async def consultar_fipe(fipe_code: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
+# Função para criar slugs
+def criar_slug(texto):
+    """Cria um slug consistente para comparação de strings"""
+    # Remove acentos
+    texto = unidecode.unidecode(texto)
+    # Converte para minúsculas
+    texto = texto.lower()
+    # Remove caracteres especiais e substitui por hífens
+    texto = re.sub(r'[^a-z0-9]+', '-', texto)
+    # Remove hífens extras no início/fim
+    return texto.strip('-')
+
+@app.get("/wheel-size")
+async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
+    """
+    Busca a medida do pneu na API da Wheel Size
+    Parâmetros:
+        marca: texto (ex: "Fiat")
+        modelo: texto (ex: "Argo Drive")
+        ano_id: string no formato "AAAA-X" (ex: "2022-1")
+    """
+    # Extrair apenas o ano base (AAAA) do ano_id
+    try:
+        ano_base = ano_id.split('-')[0]  # Pega apenas o ano (ex: "2022")
+    except:
+        return {"erro": "Formato de ano inválido"}
+
+    # Obter nome completo da trim da API FIPE
+    async with httpx.AsyncClient() as client:
+        # 1. Buscar todas as versões do veículo
+        fipe_code = f"{criar_slug(marca)}-{criar_slug(modelo)}-{ano_base}"
+        url_fipe = f"{BASE_URL}/years/{fipe_code}?token={TOKEN}"
+        response_fipe = await client.get(url_fipe)
+        
+        if response_fipe.status_code != 200:
+            return {"erro": "Falha ao buscar dados FIPE"}
+        
+        anos_data = response_fipe.json().get("years", [])
+        
+        # 2. Encontrar o nome da trim pelo ID
+        trim_nome = ""
+        for item in anos_data:
+            if item.get("year_id") == ano_id:
+                trim_nome = item.get("name", "").lower()
+                break
+
+    # Preparar slugs para busca
+    marca_slug = criar_slug(marca)
+    modelo_slug = criar_slug(modelo.split()[0])  # Pega apenas o modelo base
+
+    # Chamar API Wheel Size
+    url_wheel = (
+        f"https://api.wheel-size.com/v2/search/by_model/"
+        f"?make={marca_slug}"
+        f"&model={modelo_slug}"
+        f"&year={ano_base}"
+        f"&region=ladm"
+        f"&ordering=trim"
+        f"&user_key={WHEEL_SIZE_TOKEN}"
+    )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response_wheel = await client.get(url_wheel)
+            response_wheel.raise_for_status()
+            data = response_wheel.json()
+
+        # Tentar encontrar a trim exata
+        veiculo_correto = None
+        melhor_match = None
+        melhor_pontuacao = 0
+        
+        if data.get('data'):
+            for veiculo in data['data']:
+                trim_atual = veiculo.get('trim', '').lower()
+                
+                # 1. Tentativa: Match exato com nome da trim
+                if trim_nome and trim_atual == trim_nome:
+                    veiculo_correto = veiculo
+                    break
+                
+                # 2. Tentativa: Similaridade de strings
+                if trim_nome:
+                    # Calcular similaridade baseada em tokens comuns
+                    tokens_nome = set(trim_nome.split())
+                    tokens_atual = set(trim_atual.split())
+                    pontos = len(tokens_nome & tokens_atual)
+                    
+                    if pontos > melhor_pontuacao:
+                        melhor_pontuacao = pontos
+                        melhor_match = veiculo
+        
+        # Fallback: Usar melhor match ou primeiro veículo
+        if not veiculo_correto:
+            veiculo_correto = melhor_match if melhor_match else data['data'][0]
+        
+        # Processar medidas
+        if veiculo_correto and veiculo_correto.get('wheels'):
+            roda = veiculo_correto['wheels'][0]['front']
+            medida = roda.get('tire_full', '')
+            
+            if not medida:
+                medida = f"{roda['section_width']}/{roda['aspect_ratio']} R{roda['rim_diameter']}"
+            
+            # Informações de debug
+            debug_info = {
+                "trim_encontrada": veiculo_correto.get('trim'),
+                "trim_buscada": trim_nome,
+                "match_exato": True if veiculo_correto.get('trim', '').lower() == trim_nome else False
+            }
+            
+            return {
+                "medida": medida.replace('R', ' R'),  # Formata para padrão brasileiro
+                "debug": debug_info
+            }
+        
+        return {"erro": "Medida não encontrada"}
+    
+    except Exception as e:
+        return {"erro": f"Falha na API Wheel Size: {str(e)}"}
+
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
     
@@ -174,7 +298,7 @@ def calcular_desconto_km(km, valor_fipe, ano):
 async def buscar_precos_pecas(
     marca: str, 
     modelo: str, 
-    ano: str,  # Agora recebe o código completo do ano (ex: "1995-1")
+    ano: str,  # Recebe o código completo do ano (ex: "1995-1")
     pecas: str = Query(""), 
     fipe_code: str = Query(None), 
     km: float = Query(0.0),
@@ -281,9 +405,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     relatorio = []
     total_abatimento = 0
 
-    # Remover pneus da lista de peças
-    pecas_selecionadas = [p for p in pecas_selecionadas if p.strip().lower() not in ["pneu", "pneus"]]
-    
+    # REMOVIDO: Filtro de pneus
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
     logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
@@ -296,7 +418,12 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             if not peca or peca.lower() == "não":
                 continue
 
-            termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+            # NOVO TRATAMENTO PARA PNEUS
+            if peca.strip().lower().startswith("kit pneus"):
+                termo_busca = peca.strip()   # Termo exato para pneus
+            else:
+                termo_busca = f"{peca.strip()} {marca_nome} {modelo_nome} {ano_nome}".replace("  ", " ").strip()
+
             payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
             logger.info(f"[DEBUG] Buscando peça: {termo_busca} | Payload: {payload}")
 
@@ -339,13 +466,15 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 for item in dados_completos[:5]:
                     logger.info(f"[DEBUG] Produto bruto: {item}")
 
-                    titulo = item.get("eTituloProduto", "").lower()
-                    modelo_normalizado = modelo_nome.lower().split()[0]
-                    peca_normalizada = peca.lower().split()[0]
+                    # NOVO: Só aplicar filtro se não for pneu
+                    if not peca.strip().lower().startswith("kit pneus"):
+                        titulo = item.get("eTituloProduto", "").lower()
+                        modelo_normalizado = modelo_nome.lower().split()[0]
+                        peca_normalizada = peca.lower().split()[0]
 
-                    if peca_normalizada not in titulo or modelo_normalizado not in titulo:
-                        logger.info(f"[DEBUG] Ignorado: título irrelevante → {titulo}")
-                        continue
+                        if peca_normalizada not in titulo or modelo_normalizado not in titulo:
+                            logger.info(f"[DEBUG] Ignorado: título irrelevante → {titulo}")
+                            continue
 
                     preco_str = item.get("novoPreco")
                     if not preco_str:
