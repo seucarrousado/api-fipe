@@ -351,7 +351,7 @@ async def buscar_precos_pecas(
                         )
                     ]
 
-                logger.info(f"[TESTE FINAL] lista_pecas enviada para Apify: {lista_pecas}")
+                    logger.info(f"[TESTE FINAL] lista_pecas enviada para Apify: {lista_pecas}")
                 
                 else:
                     logger.warning("[PNEU] Medida não encontrada. Mantendo termo original.")
