@@ -431,6 +431,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 dados_completos = response.json()
+                logger.info(f"[APIFY] Retorno bruto da Apify para '{peca}': {json.dumps(dados_completos, indent=2, ensure_ascii=False)}")
                 
                 peca_cache[cache_key] = dados_completos
                 return {"sucesso": True, "peca": peca, "dados": dados_completos}
