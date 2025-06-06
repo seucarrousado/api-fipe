@@ -346,8 +346,9 @@ async def buscar_precos_pecas(
                     lista_pecas = [
                         p for p in lista_pecas
                         if "=" not in p and not any(
-                            termo in unicodedata.normalize("NFKD", p.lower()).encode("ascii", "ignore").decode("utf-8")
-                            for termo in ["ipva", "fipe", "interior", "exterior", "km"]
+                            unicodedata.normalize("NFKD", termo).encode("ascii", "ignore").decode("utf-8") in
+                            unicodedata.normalize("NFKD", p.lower()).encode("ascii", "ignore").decode("utf-8")
+                            for termo in [" ipva", " estado interior", " fipe", " exterior", " km"]
                         )
                     ]
 
