@@ -151,7 +151,7 @@ def criar_slug(texto):
 async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     """
     Busca a medida do pneu na API da Wheel Size
-    """
+
     logger.info(f"[WS] Requisição recebida: marca={marca}, modelo={modelo}, ano_id={ano_id}")
 
     Parâmetros:
