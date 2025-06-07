@@ -150,49 +150,28 @@ def criar_slug(texto):
 @app.get("/wheel-size")
 async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     """
-    Busca a medida do pneu na API da Wheel Size
-
-    logger.info(f"[WS] Requisição recebida: marca={marca}, modelo={modelo}, ano_id={ano_id}")
+    Busca a medida do pneu na API da Wheel Size.
 
     Parâmetros:
         marca: texto (ex: "Fiat")
-        modelo: texto (ex: "Argo Drive")
+        modelo: texto completo com versão (ex: "Argo 1.0 6V Flex")
         ano_id: string no formato "AAAA-X" (ex: "2022-1")
     """
-    # Extrair apenas o ano base (AAAA) do ano_id
+    logger.info(f"[WS] Requisição recebida: marca={marca}, modelo={modelo}, ano_id={ano_id}")
+
     try:
-        ano_base = ano_id.split('-')[0]  # Pega apenas o ano (ex: "2022")
-    except:
+        ano_base = ano_id.split('-')[0]
+    except Exception as e:
         logger.error(f"[WS] Erro ao extrair ano base de {ano_id}: {e}")
         return {"erro": "Formato de ano inválido"}
 
-    # Obter nome completo da trim da API FIPE
-    async with httpx.AsyncClient() as client:
-        # 1. Buscar todas as versões do veículo
-        fipe_code = f"{criar_slug(marca)}-{criar_slug(modelo)}-{ano_base}"
-        url_fipe = f"{BASE_URL}/years/{fipe_code}?token={TOKEN}"
-        logger.info(f"[WS] Buscando nome da versão FIPE: {url_fipe}")
-        response_fipe = await client.get(url_fipe)
-        
-        if response_fipe.status_code != 200:
-            logger.warning(f"[WS] Resposta FIPE inesperada: {response_fipe.status_code} - {response_fipe.text}")
-            return {"erro": "Falha ao buscar dados FIPE"}
-        
-        anos_data = response_fipe.json().get("years", [])
-        
-        # 2. Encontrar o nome da trim pelo ID
-        trim_nome = ""
-        for item in anos_data:
-            if item.get("year_id") == ano_id:
-                trim_nome = item.get("name", "").lower()
-                break
-        logger.info(f"[WS] Trim detectada: {trim_nome}")
-        
-    # Preparar slugs para busca
-    marca_slug = criar_slug(marca)
-    modelo_slug = criar_slug(modelo.split()[0])  # Pega apenas o modelo base
+    # Versão (trim) extraída diretamente do modelo completo recebido
+    trim_nome = modelo.lower().strip()
+    logger.info(f"[WS] Versão (trim) recebida do frontend: {trim_nome}")
 
-    # Chamar API Wheel Size
+    marca_slug = criar_slug(marca)
+    modelo_slug = criar_slug(modelo.split()[0])  # modelo base
+
     url_wheel = (
         f"https://api.wheel-size.com/v2/search/by_model/"
         f"?make={marca_slug}"
@@ -203,72 +182,62 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
         f"&user_key={WHEEL_SIZE_TOKEN}"
     )
     logger.info(f"[WS] URL da Wheel-Size: {url_wheel}")
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response_wheel = await client.get(url_wheel)
             response_wheel.raise_for_status()
             data = response_wheel.json()
-            
+
         logger.info(f"[WS] Total de resultados da Wheel-Size: {len(data.get('data', []))}")    
 
-        # Tentar encontrar a trim exata
         veiculo_correto = None
         melhor_match = None
         melhor_pontuacao = 0
-        
+
         if data.get('data'):
             for veiculo in data['data']:
                 trim_atual = veiculo.get('trim', '').lower()
                 logger.info(f"[WS] Comparando trim: {trim_atual} vs {trim_nome}")
-                
-                # 1. Tentativa: Match exato com nome da trim
+
                 if trim_nome and trim_atual == trim_nome:
                     veiculo_correto = veiculo
                     logger.info(f"[WS] Trim exato encontrado.")
                     break
-                
-                # 2. Tentativa: Similaridade de strings
+
                 if trim_nome:
-                    # Calcular similaridade baseada em tokens comuns
                     tokens_nome = set(trim_nome.split())
                     tokens_atual = set(trim_atual.split())
                     pontos = len(tokens_nome & tokens_atual)
-                    
+
                     if pontos > melhor_pontuacao:
                         melhor_pontuacao = pontos
                         melhor_match = veiculo
-        
-        # Fallback: Usar melhor match ou primeiro veículo
+
         if not veiculo_correto:
-            veiculo_correto = melhor_match if melhor_match else data['data'][0]
+            veiculo_correto = melhor_match if melhor_match else (data['data'][0] if data['data'] else None)
             logger.info(f"[WS] Usando melhor match ou fallback.")
-        
-        # Processar medidas
+
         if veiculo_correto and veiculo_correto.get('wheels'):
             roda = veiculo_correto['wheels'][0]['front']
-            medida = roda.get('tire_full', '')
-            
-            if not medida:
-                medida = f"{roda['section_width']}/{roda['aspect_ratio']} R{roda['rim_diameter']}"
-            
-            # Informações de debug
-            debug_info = {
-                "trim_encontrada": veiculo_correto.get('trim'),
-                "trim_buscada": trim_nome,
-                "match_exato": True if veiculo_correto.get('trim', '').lower() == trim_nome else False
-            }
-            
+            medida = roda.get('tire_full') or f"{roda['section_width']}/{roda['aspect_ratio']} R{roda['rim_diameter']}"
+
             return {
-                "medida": medida.replace('R', ' R'),  # Formata para padrão brasileiro
-                "debug": debug_info
+                "medida": medida.replace('R', ' R'),
+                "debug": {
+                    "trim_encontrada": veiculo_correto.get('trim'),
+                    "trim_buscada": trim_nome,
+                    "match_exato": veiculo_correto.get('trim', '').lower() == trim_nome
+                }
             }
+
         logger.warning(f"[WS] Nenhuma medida de roda encontrada no veículo.")
         return {"erro": "Medida não encontrada"}
-    
+
     except Exception as e:
         logger.error(f"[WS] Erro geral ao buscar medida do pneu: {e}")
         return {"erro": f"Falha na API Wheel Size: {str(e)}"}
+
 
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
