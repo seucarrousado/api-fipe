@@ -6,3 +6,4 @@ httpx
 cachetools
 pydantic
 openai>=1.2.0
+Unidecode
