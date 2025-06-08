@@ -169,12 +169,24 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     trim_nome = modelo.lower().strip()
     logger.info(f"[WS] Versão (trim) recebida do frontend: {trim_nome}")
 
-    marca_tratada = marca.split("/")[0].strip() if "/" in marca else marca
-    if len(marca_tratada.strip()) < 3:
-        marca_tratada = marca  # fallback se remover tudo
-    marca_slug = criar_slug(marca_tratada)
-    modelo_slug = criar_slug(modelo.split()[0])  # modelo base
+    # --- TRATAMENTO DA MARCA ---
+    if "/" in marca:
+        marca_tratada = marca.split("/")[-1].strip()
+    else:
+        marca_tratada = marca.strip()
 
+    # Fallback para nomes muito curtos
+    if len(marca_tratada.strip()) < 3:
+        marca_tratada = marca
+
+# --- CRIAÇÃO DOS SLUGS ---
+marca_slug = criar_slug(marca_tratada)
+modelo_slug = criar_slug(modelo.split()[0])  # Pega primeira palavra do modelo
+
+
+# Criação dos slugs
+marca_slug = criar_slug(marca_tratada)
+modelo_slug = criar_slug(modelo.split()[0] if modelo.strip() else modelo)
     url_wheel = (
         f"https://api.wheel-size.com/v2/search/by_model/"
         f"?make={marca_slug}"
