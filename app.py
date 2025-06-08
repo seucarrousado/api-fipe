@@ -170,12 +170,16 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     trim_nome = modelo.lower().strip()
     logger.info(f"[WS] Versão (trim) recebida do frontend: {trim_nome}")
 
-    # --- TRATAMENTO DA MARCA (remove parte antes da barra) ---
+    # --- TRATAMENTO DA MARCA (remover tudo antes de hífen ou barra, se existir) ---
     marca = unquote(marca)
+
     if "/" in marca:
         marca = marca.split("/")[-1].strip()
+    elif "-" in marca:
+        marca = marca.split("-")[-1].strip()
 
-    if len(marca) < 3:
+    # Se ficar curto demais, desfaz o tratamento
+    if len(marca.strip()) < 3:
         logger.warning(f"[WS] Marca muito curta após tratamento: '{marca}'. Revertendo ao original.")
         marca = unquote(marca)
 
