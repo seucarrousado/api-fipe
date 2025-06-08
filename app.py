@@ -179,14 +179,10 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     if len(marca_tratada.strip()) < 3:
         marca_tratada = marca
 
-# --- CRIAÇÃO DOS SLUGS ---
-marca_slug = criar_slug(marca_tratada)
-modelo_slug = criar_slug(modelo.split()[0])  # Pega primeira palavra do modelo
+    # --- CRIAÇÃO DOS SLUGS ---
+    marca_slug = criar_slug(marca_tratada)
+    modelo_slug = criar_slug((modelo.split()[0] if modelo.strip() else modelo))
 
-
-# Criação dos slugs
-marca_slug = criar_slug(marca_tratada)
-modelo_slug = criar_slug(modelo.split()[0] if modelo.strip() else modelo)
     url_wheel = (
         f"https://api.wheel-size.com/v2/search/by_model/"
         f"?make={marca_slug}"
@@ -456,4 +452,3 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         # Soma total
         total_abatimento = sum(item.get("abatido", 0) for item in resultados if isinstance(item, dict))
         return resultados, total_abatimento
-
