@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime
 import re
 import unidecode  # Adicionado para normalização de textos
+from urllib.parse import unquote
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
