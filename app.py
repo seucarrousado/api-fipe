@@ -292,7 +292,11 @@ async def buscar_precos_pecas(
     try:
         from urllib.parse import unquote
 
-        marca = unquote(marca)
+        marca = unquote(marca).strip()
+        if '/' in marca:
+            partes = [p.strip() for p in marca.split('/') if len(p.strip()) >= 3]
+            if partes:
+                marca = partes[-1]  # Pega a última parte com 3+ letras, ex: Chevrolet de GM / Chevrolet
         modelo = unquote(modelo)
         pecas = unquote(pecas)
         
