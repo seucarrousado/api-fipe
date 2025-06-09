@@ -9,7 +9,6 @@ import asyncio
 from datetime import datetime
 import re
 import unidecode  # Adicionado para normalização de textos
-from urllib.parse import unquote
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
@@ -170,26 +169,8 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     trim_nome = modelo.lower().strip()
     logger.info(f"[WS] Versão (trim) recebida do frontend: {trim_nome}")
 
-    # --- TRATAMENTO DA MARCA (remover tudo antes de hífen ou barra, se existir) ---
-    marca = unquote(marca)
-
-    if "/" in marca:
-        marca = marca.split("/")[-1].strip()
-    elif "-" in marca:
-        marca = marca.split("-")[-1].strip()
-
-    # Se ficar curto demais, desfaz o tratamento
-    if len(marca.strip()) < 3:
-        logger.warning(f"[WS] Marca muito curta após tratamento: '{marca}'. Revertendo ao original.")
-        marca = unquote(marca)
-
-    # --- TRATAMENTO DO MODELO ---
-    modelo = unquote(modelo)
-    modelo_base = modelo.split()[0].strip()
-
-    # --- CRIAÇÃO DOS SLUGS ---
     marca_slug = criar_slug(marca)
-    modelo_slug = criar_slug(modelo_base)
+    modelo_slug = criar_slug(modelo.split()[0])  # modelo base
 
     url_wheel = (
         f"https://api.wheel-size.com/v2/search/by_model/"
@@ -308,6 +289,7 @@ async def buscar_precos_pecas(
     estado_exterior: str = Query(""),
     ipva_valor: float = Query(0.0)
 ):
+    logger.info(f"[PECAS] Endpoint /pecas chamado com: marca={marca}, modelo={modelo}, ano={ano}, pecas={pecas}")
     try:
         from urllib.parse import unquote
 
@@ -355,9 +337,11 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
+        logger.info(f"[PECAS] Buscando preços para peças: {lista_pecas}")
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
             marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
         )
+        logger.info(f"[PECAS] Relatório de peças obtido: {len(relatorio)} itens")
         
         # Calcular todos os descontos
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
@@ -383,6 +367,7 @@ async def buscar_precos_pecas(
             "relatorio_detalhado": relatorio,
         }
     except Exception as e:
+        logger.error(f"[PECAS] Erro na consulta de peças: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro na consulta de peças: {str(e)}")
         
 @app.get("/cidades/{uf}")
@@ -403,23 +388,32 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
     logger = logging.getLogger("calculadora_fipe")
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
-    logger.info("[DEBUG] Função buscar_precos_e_gerar_relatorio foi chamada.")
+    logger.info(f"[APIFY] Iniciando busca para {len(pecas_selecionadas)} peças")
+    logger.info(f"[APIFY] URL da API: {api_url}")
 
     async with httpx.AsyncClient(timeout=60) as client:
         async def fetch_peca(peca):
             termo_busca = peca.strip() if peca.lower().startswith("kit pneus") else f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
             payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
             try:
+                logger.info(f"[APIFY] Buscando peça: '{peca}' com termo: '{termo_busca}'")
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 dados_completos = response.json()
                 
+                # LOG ESTRATÉGICO: Resposta completa da API
+                logger.info(f"[APIFY] Resposta para '{peca}': Status {response.status_code}, {len(dados_completos)} resultados")
+                
                 if not isinstance(dados_completos, list) or not dados_completos:
+                    logger.warning(f"[APIFY] Sem resultados válidos para: {peca}")
                     return {"item": peca, "erro": "Sem resultados válidos"}
 
                 precos, links, imagens, nomes, precos_texto = [], [], [], [], []
 
                 for item in dados_completos[:5]:
+                    # Log de debug para cada item retornado
+                    logger.debug(f"[APIFY] Item: {item.get('eTituloProduto')} | Preço: {item.get('novoPreco')}")
+
                     if not peca.strip().lower().startswith("kit pneus"):
                         titulo = item.get("eTituloProduto", "").lower()
                         modelo_base = modelo_nome.lower().split()[0]
@@ -437,9 +431,11 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     precos_texto.append(preco_str)
 
                 if not precos:
+                    logger.warning(f"[APIFY] Nenhum preço válido para: {peca}")
                     return {"item": peca, "erro": "Nenhum preço válido"}
 
                 preco_medio = round(sum(precos) / len(precos), 2)
+                logger.info(f"[APIFY] Preço médio para {peca}: R${preco_medio}")
                 return {
                     "item": peca,
                     "preco_medio": preco_medio,
@@ -450,13 +446,19 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                     "precos": precos_texto[:3]
                 }
             except Exception as e:
-                logger.error(f"[Apify Error] {peca}: {e}")
+                logger.error(f"[APIFY ERROR] Falha ao buscar '{peca}': {str(e)}")
                 return {"item": peca, "erro": f"Falha: {str(e)}"}
 
         # Executa todas simultaneamente
         tasks = [fetch_peca(peca) for peca in pecas_selecionadas if peca]
         resultados = await asyncio.gather(*tasks)
 
+        # Log de resumo das peças processadas
+        sucessos = sum(1 for r in resultados if 'preco_medio' in r)
+        falhas = sum(1 for r in resultados if 'erro' in r)
+        logger.info(f"[APIFY] Resumo: {sucessos} peças com sucesso, {falhas} falhas")
+
         # Soma total
         total_abatimento = sum(item.get("abatido", 0) for item in resultados if isinstance(item, dict))
+        logger.info(f"[APIFY] Total abatido por peças: R${total_abatimento}")
         return resultados, total_abatimento
