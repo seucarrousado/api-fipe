@@ -413,6 +413,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 response = await client.post(api_url, json=payload)
                 response.raise_for_status()
                 dados_completos = response.json()
+                logger.info(f"[DEBUG] Resultado bruto da Apify para '{peca}':")
+                logger.info(json.dumps(dados_completos[:1], indent=2, ensure_ascii=False))
 
                 if not isinstance(dados_completos, list) or not dados_completos:
                     return {"item": peca, "erro": "Sem resultados válidos"}
