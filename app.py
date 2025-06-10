@@ -11,6 +11,14 @@ import re
 import unidecode  # Adicionado para normalização de textos
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Nova pasta para armazenar logs
+PASTA_RELATORIOS = os.path.join(BASE_DIR, "relatorios")
+os.makedirs(PASTA_RELATORIOS, exist_ok=True)
+
+# Caminho completo para o log
+LOG_CAMINHO = os.path.join(PASTA_RELATORIOS, "log_pecas.csv")
+
 ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
 
 app = FastAPI()
@@ -177,7 +185,7 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
         f"?make={marca_slug}"
         f"&model={modelo_slug}"
         f"&year={ano_base}"
-        f"&region=ladm"
+        f"®ion=ladm"
         f"&ordering=trim"
         f"&user_key={WHEEL_SIZE_TOKEN}"
     )
@@ -237,7 +245,6 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     except Exception as e:
         logger.error(f"[WS] Erro geral ao buscar medida do pneu: {e}")
         return {"erro": f"Falha na API Wheel Size: {str(e)}"}
-
 
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
@@ -439,8 +446,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                                            
                 from csv import writer
 
-                log_path = os.path.join(BASE_DIR, "log_pecas.csv")
-                with open(log_path, "a", encoding="utf-8", newline="") as f:
+                with open(LOG_CAMINHO, "a", encoding="utf-8", newline="") as f:
                     log_writer = writer(f)
                     log_writer.writerow([
                         datetime.now().isoformat(),
@@ -475,24 +481,23 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         total_abatimento = sum(item.get("abatido", 0) for item in resultados if isinstance(item, dict))
         logger.info(f"[APIFY] Total abatido por peças: R${total_abatimento}")
         return resultados, total_abatimento
-        
-        from fastapi.responses import FileResponse
 
-        @app.get("/exportar-logs")
-        async def exportar_log_de_pecas():
-            """
-            Endpoint para baixar o arquivo log_pecas.csv com as peças pesquisadas.
-            """
-            try:
-                caminho_log = os.path.join(BASE_DIR, "log_pecas.csv")
-                if not os.path.exists(caminho_log):
-                    raise HTTPException(status_code=404, detail="Arquivo de log não encontrado.")
-        
-                return FileResponse(
-                    caminho_log,
-                    filename="log_pecas.csv",
-                    media_type="text/csv"
-                )
-            except Exception as e:
-                logger.error(f"[EXPORTAÇÃO] Erro ao exportar log: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Erro ao exportar log: {str(e)}")
+from fastapi.responses import FileResponse
+
+@app.get("/exportar-logs")
+async def exportar_log_de_pecas():
+    """
+    Endpoint para baixar o arquivo log_pecas.csv com as peças pesquisadas.
+    """
+    try:
+        if not os.path.exists(LOG_CAMINHO):
+            raise HTTPException(status_code=404, detail="Arquivo de log não encontrado.")
+
+        return FileResponse(
+            LOG_CAMINHO,
+            filename="log_pecas.csv",
+            media_type="text/csv"
+        )
+    except Exception as e:
+        logger.error(f"[EXPORTAÇÃO] Erro ao exportar log: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao exportar log: {str(e)}")
