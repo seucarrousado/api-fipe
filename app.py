@@ -496,4 +496,3 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
             except Exception as e:
                 logger.error(f"[EXPORTAÇÃO] Erro ao exportar log: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Erro ao exportar log: {str(e)}")
-
