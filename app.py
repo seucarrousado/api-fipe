@@ -294,7 +294,9 @@ async def buscar_precos_pecas(
     km: float = Query(0.0),
     estado_interior: str = Query(""), 
     estado_exterior: str = Query(""),
-    ipva_valor: float = Query(0.0)
+    ipva_valor: float = Query(0.0),
+    estado_usuario: str = Query(""),
+    cidade_usuario: str = Query("")
 ):
     logger.info(f"[PECAS] Endpoint /pecas chamado com: marca={marca}, modelo={modelo}, ano={ano}, pecas={pecas}")
     try:
@@ -346,7 +348,7 @@ async def buscar_precos_pecas(
 
         logger.info(f"[PECAS] Buscando preços para peças: {lista_pecas}")
         relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
-            marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas
+            marca_nome, modelo_nome, ano_codigo.split('-')[0], lista_pecas, estado_usuario, cidade_usuario
         )
         logger.info(f"[PECAS] Relatório de peças obtido: {len(relatorio)} itens")
         
@@ -391,7 +393,7 @@ async def get_cidades_por_estado(uf: str):
     except Exception as e:
         return {"erro": f"Erro ao carregar cidades: {str(e)}"}
         
-async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas):
+async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas, estado_usuario, cidade_usuario):
     logger = logging.getLogger("calculadora_fipe")
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
@@ -454,6 +456,8 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         modelo_nome,
                         ano_nome,
                         peca
+                        estado_usuario,
+                        cidade_usuario
                     ])
                 return {
                     "item": peca,
