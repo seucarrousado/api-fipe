@@ -455,7 +455,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                         marca_nome,
                         modelo_nome,
                         ano_nome,
-                        peca
+                        peca,
                         estado_usuario,
                         cidade_usuario
                     ])
