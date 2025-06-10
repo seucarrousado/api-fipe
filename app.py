@@ -436,7 +436,23 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
                 preco_medio = round(sum(precos) / len(precos), 2)
                 logger.info(f"[APIFY] Preço médio para {peca}: R${preco_medio}")
-                
+                from csv import writer
+
+                log_path = os.path.join(BASE_DIR, "log_pecas.csv")
+                try:
+                    with open(log_path, "a", encoding="utf-8", newline="") as f:
+                        log_writer = writer(f)
+                        log_writer.writerow([
+                                   datetime.now().isoformat(),
+                                   marca_nome,
+                                   modelo_nome,
+                                   ano_nome,
+                                   peca
+                        ])
+                    logger.info(f"[LOG] Peça '{peca}' registrada com sucesso no log.")
+                except Exception as e:
+                    logger.error(f"[LOG] Erro ao salvar log de peça: {str(e)}")
+                            
                 from csv import writer
 
                 log_path = os.path.join(BASE_DIR, "log_pecas.csv")
