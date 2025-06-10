@@ -185,7 +185,7 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
         f"?make={marca_slug}"
         f"&model={modelo_slug}"
         f"&year={ano_base}"
-        f"®ion=ladm"
+        f"&region=ladm"
         f"&ordering=trim"
         f"&user_key={WHEEL_SIZE_TOKEN}"
     )
