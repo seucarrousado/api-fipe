@@ -436,23 +436,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
                 preco_medio = round(sum(precos) / len(precos), 2)
                 logger.info(f"[APIFY] Preço médio para {peca}: R${preco_medio}")
-                from csv import writer
-
-                log_path = os.path.join(BASE_DIR, "log_pecas.csv")
-                try:
-                    with open(log_path, "a", encoding="utf-8", newline="") as f:
-                        log_writer = writer(f)
-                        log_writer.writerow([
-                                   datetime.now().isoformat(),
-                                   marca_nome,
-                                   modelo_nome,
-                                   ano_nome,
-                                   peca
-                        ])
-                    logger.info(f"[LOG] Peça '{peca}' registrada com sucesso no log.")
-                except Exception as e:
-                    logger.error(f"[LOG] Erro ao salvar log de peça: {str(e)}")
-                            
+                                           
                 from csv import writer
 
                 log_path = os.path.join(BASE_DIR, "log_pecas.csv")
@@ -491,3 +475,25 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         total_abatimento = sum(item.get("abatido", 0) for item in resultados if isinstance(item, dict))
         logger.info(f"[APIFY] Total abatido por peças: R${total_abatimento}")
         return resultados, total_abatimento
+        
+        from fastapi.responses import FileResponse
+
+        @app.get("/exportar-logs")
+        async def exportar_log_de_pecas():
+            """
+            Endpoint para baixar o arquivo log_pecas.csv com as peças pesquisadas.
+            """
+            try:
+                caminho_log = os.path.join(BASE_DIR, "log_pecas.csv")
+                if not os.path.exists(caminho_log):
+                    raise HTTPException(status_code=404, detail="Arquivo de log não encontrado.")
+        
+                return FileResponse(
+                    caminho_log,
+                    filename="log_pecas.csv",
+                    media_type="text/csv"
+                )
+            except Exception as e:
+                logger.error(f"[EXPORTAÇÃO] Erro ao exportar log: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Erro ao exportar log: {str(e)}")
+
