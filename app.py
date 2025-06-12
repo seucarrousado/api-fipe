@@ -505,3 +505,9 @@ async def exportar_log_de_pecas():
     except Exception as e:
         logger.error(f"[EXPORTAÇÃO] Erro ao exportar log: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao exportar log: {str(e)}")
+@app.get("/exportar-leads")
+async def exportar_leads():
+    caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
+    if not os.path.exists(caminho):
+        raise HTTPException(status_code=404, detail="Nenhum lead registrado ainda.")
+    return FileResponse(caminho, media_type="text/csv", filename="leads.csv")
