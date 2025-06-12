@@ -505,6 +505,35 @@ async def exportar_log_de_pecas():
     except Exception as e:
         logger.error(f"[EXPORTAÇÃO] Erro ao exportar log: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao exportar log: {str(e)}")
+        
+@app.post("/salvar-lead")
+async def salvar_lead(lead: dict):
+    try:
+        caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
+        criar_arquivo = not os.path.exists(caminho)
+
+        with open(caminho, mode="a", encoding="utf-8", newline="") as arquivo:
+            campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "enviarEmail", "enviarWhatsapp"]
+            writer = csv.DictWriter(arquivo, fieldnames=campos)
+
+            if criar_arquivo:
+                writer.writeheader()
+
+            writer.writerow({
+                "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "nome": lead.get("nome", ""),
+                "email": lead.get("email", ""),
+                "whatsapp": lead.get("whatsapp", ""),
+                "objetivo": lead.get("objetivo", ""),
+                "enviarEmail": lead.get("enviarEmail", False),
+                "enviarWhatsapp": lead.get("enviarWhatsapp", False)
+            })
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar lead: {str(e)}")
+        
 @app.get("/exportar-leads")
 async def exportar_leads():
     caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
