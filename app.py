@@ -23,13 +23,6 @@ ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Permite todos para teste, ajuste em produção
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("calculadora_fipe")
 
