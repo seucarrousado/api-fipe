@@ -513,7 +513,7 @@ async def salvar_lead(lead: dict):
         criar_arquivo = not os.path.exists(caminho)
 
         with open(caminho, mode="a", encoding="utf-8", newline="") as arquivo:
-            campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "enviarEmail", "enviarWhatsapp"]
+            campos = ["data_hora", "nome", "email", "whatsapp", "objetivo"]
             writer = csv.DictWriter(arquivo, fieldnames=campos)
 
             if criar_arquivo:
@@ -525,8 +525,6 @@ async def salvar_lead(lead: dict):
                 "email": lead.get("email", ""),
                 "whatsapp": lead.get("whatsapp", ""),
                 "objetivo": lead.get("objetivo", ""),
-                "enviarEmail": lead.get("enviarEmail", False),
-                "enviarWhatsapp": lead.get("enviarWhatsapp", False)
             })
 
         return {"status": "ok"}
