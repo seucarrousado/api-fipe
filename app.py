@@ -394,7 +394,7 @@ async def salvar_lead(request: Request):
         lead_data = await request.json()
 
         caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
-        campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "placa"]
+        campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "placa", "marca", "modelo", "ano", "pecas", "estado", "cidade"]
         criar_arquivo = not os.path.exists(caminho)
 
         with open(caminho, mode="a", encoding="utf-8", newline="") as arquivo:
@@ -410,6 +410,12 @@ async def salvar_lead(request: Request):
                 "whatsapp": lead_data.get("whatsapp", ""),
                 "objetivo": lead_data.get("objetivo", ""),
                 "placa": lead_data.get("placa", ""),
+                "marca": lead_data.get("marca", ""),
+                "modelo": lead_data.get("modelo", ""),
+                "ano": lead_data.get("ano", ""),
+                "pecas": lead_data.get("pecas", ""),
+                "estado": lead_data.get("estado_usuario", ""),
+                "cidade": lead_data.get("cidade_usuario", "")
             })
 
         return {"status": "ok"}
