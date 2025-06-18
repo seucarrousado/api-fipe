@@ -414,8 +414,8 @@ async def salvar_lead(request: Request):
                 "modelo": lead_data.get("modelo", ""),
                 "ano": lead_data.get("ano", ""),
                 "pecas": lead_data.get("pecas", ""),
-                "estado": lead_data.get("estado_usuario", ""),
-                "cidade": lead_data.get("cidade_usuario", "")
+                "estado": lead_data.get("estado", ""),
+                "cidade": lead_data.get("cidade", "")
             })
 
         return {"status": "ok"}
