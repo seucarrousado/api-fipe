@@ -10,6 +10,8 @@ import re
 import unidecode
 import csv
 from fastapi.responses import FileResponse
+from email.mime.text import MIMEText
+import smtplib
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -434,3 +436,53 @@ async def exportar_leads():
 @app.get("/")
 async def health_check():
     return {"status": "online", "versao": "1.0.0"}
+
+from pydantic import BaseModel
+import smtplib
+from email.mime.text import MIMEText
+
+class SugestaoForm(BaseModel):
+    nome: str
+    email: str
+    mensagem: str
+
+from pydantic import BaseModel
+import smtplib
+from email.mime.text import MIMEText
+
+class SugestaoForm(BaseModel):
+    nome: str
+    email: str
+    mensagem: str
+
+@app.post("/enviar-sugestao-email")
+async def enviar_sugestao_email(form: SugestaoForm):
+    try:
+        corpo = f"""
+        Nova sugestão recebida no site:
+
+        Nome: {form.nome}
+        Email: {form.email}
+        Mensagem:
+        {form.mensagem}
+        """
+
+        msg = MIMEText(corpo)
+        msg["Subject"] = "Sugestão recebida – Seu Carro Usado"
+        msg["From"] = "blog@seucarrousado.com.br"
+        msg["To"] = "contato@seucarrousado.com.br"
+
+        smtp_server = "smtp.hostinger.com"
+        smtp_port = 587
+        smtp_user = "blog@seucarrousado.com.br"
+        smtp_password = os.getenv("EMAIL_SENHA")
+
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, ["contato@seucarrousado.com.br"], msg.as_string())
+
+        return {"status": "sucesso"}
+    except Exception as e:
+        logger.error(f"Erro ao enviar sugestão: {str(e)}")
+        raise HTTPException(status_code=500, detail="Falha ao enviar sugestão")
