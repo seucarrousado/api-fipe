@@ -432,37 +432,30 @@ async def exportar_leads():
         raise HTTPException(status_code=404, detail="Nenhum lead registrado")
     return FileResponse(caminho, media_type="text/csv", filename="leads.csv")
 
-# Resposta padrão
+from pydantic import BaseModel
+import smtplib
+from email.mime.text import MIMEText
+import os
+from fastapi import HTTPException
+
+# Definição única do modelo
+class SugestaoForm(BaseModel):
+    mensagem: str  # Apenas o campo necessário
+
+# ... outras partes do código ...
+
+# Endpoint de saúde
 @app.get("/")
 async def health_check():
     return {"status": "online", "versao": "1.0.0"}
 
-from pydantic import BaseModel
-import smtplib
-from email.mime.text import MIMEText
-
-class SugestaoForm(BaseModel):
-    nome: str
-    email: str
-    mensagem: str
-
-from pydantic import BaseModel
-import smtplib
-from email.mime.text import MIMEText
-
-class SugestaoForm(BaseModel):
-    nome: str
-    email: str
-    mensagem: str
-
+# Endpoint para enviar sugestões
 @app.post("/enviar-sugestao-email")
 async def enviar_sugestao_email(form: SugestaoForm):
     try:
         corpo = f"""
         Nova sugestão recebida no site:
 
-        Nome: {form.nome}
-        Email: {form.email}
         Mensagem:
         {form.mensagem}
         """
@@ -476,6 +469,9 @@ async def enviar_sugestao_email(form: SugestaoForm):
         smtp_port = 587
         smtp_user = "blog@seucarrousado.com.br"
         smtp_password = os.getenv("EMAIL_SENHA")
+
+        if not smtp_password:
+            raise Exception("Senha de e-mail não configurada")
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
