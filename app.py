@@ -453,13 +453,17 @@ async def health_check():
 @app.post("/enviar-sugestao-email")
 async def enviar_sugestao_email(form: SugestaoForm):
     try:
+        # Corpo do e-mail com formatação melhorada
         corpo = f"""
         Nova sugestão recebida no site:
 
         Mensagem:
         {form.mensagem}
+        
+        ---
+        Enviado automaticamente pelo sistema
         """
-
+        
         msg = MIMEText(corpo)
         msg["Subject"] = "Sugestão recebida – Seu Carro Usado"
         msg["From"] = "blog@seucarrousado.com.br"
@@ -471,14 +475,24 @@ async def enviar_sugestao_email(form: SugestaoForm):
         smtp_password = os.getenv("EMAIL_SENHA")
 
         if not smtp_password:
-            raise Exception("Senha de e-mail não configurada")
+            logger.error("ERRO CRÍTICO: Variável EMAIL_SENHA não configurada")
+            return {"status": "erro", "detalhe": "Configuração de email incompleta"}
+
+        logger.info(f"Enviando email via {smtp_server}:{smtp_port} com usuário {smtp_user}")
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.set_debuglevel(1)  # Ativa logging detalhado SMTP
+            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(smtp_user, smtp_password)
             server.sendmail(smtp_user, ["contato@seucarrousado.com.br"], msg.as_string())
+            logger.info("Email enviado com sucesso!")
 
         return {"status": "sucesso"}
+    except smtplib.SMTPException as e:
+        logger.error(f"Erro SMTP: {str(e)}")
+        return {"status": "erro", "detalhe": f"Falha SMTP: {str(e)}"}
     except Exception as e:
-        logger.error(f"Erro ao enviar sugestão: {str(e)}")
-        raise HTTPException(status_code=500, detail="Falha ao enviar sugestão")
+        logger.error(f"Erro geral: {str(e)}", exc_info=True)
+        return {"status": "erro", "detalhe": f"Erro inesperado: {str(e)}"}
