@@ -120,6 +120,8 @@ def criar_slug(texto):
 @app.get("/wheel-size")
 async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     try:
+        if '-' in marca:
+            marca = marca.split('-')[-1]
         ano_base = ano_id.split('-')[0]
         trim_nome = modelo.lower().strip()
         marca_slug = criar_slug(marca)
