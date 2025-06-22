@@ -32,8 +32,8 @@ logger.info("API Inicializada com sucesso!")
 
 # Configuração CORS
 origins = [
-    "https://slategrey-camel-778778.hostingersite.com",
-    "http://localhost",
+    "https://calculadora.seucarrousado.com.br",
+    "http://localhost"
 ]
 
 app.add_middleware(
