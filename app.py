@@ -25,6 +25,7 @@ ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
 
 app = FastAPI()
 
+from fastapi import Response
 @app.api_route("/ping", methods=["GET", "HEAD"])
 def ping(response: Response):
     return {"status": "ok"}
