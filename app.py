@@ -25,10 +25,6 @@ ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
 
 app = FastAPI()
 
-@app.get("/ping")
-def ping():
-    return {"status": "ok"}
-
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("calculadora_fipe")
