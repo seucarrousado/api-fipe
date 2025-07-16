@@ -385,12 +385,10 @@ async def get_cidades_por_estado(uf: str):
 
 @app.get("/exportar-logs")
 async def exportar_log_de_pecas():
-    try:
-        if not os.path.exists(LOG_CAMINHO):
-            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-        return FileResponse(LOG_CAMINHO, filename="log_pecas.csv", media_type="text/csv")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao exportar: {str(e)}")
+    caminho = "/opt/render/project/src/relatorios/log_pecas.csv"
+    if not os.path.exists(caminho):
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return FileResponse(caminho, filename="log_pecas.csv", media_type="text/csv")
 
 # Sistema de leads
 @app.options("/salvar-lead")
@@ -403,7 +401,7 @@ async def salvar_lead(request: Request):
         lead_data = await request.json()
         print("📩 Dados recebidos no salvar-lead:", lead_data)
         
-        caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
+        caminho = os.path.abspath(os.path.join("relatorios", "leads.csv"))
         print("📁 Caminho onde vai salvar:", caminho)
         campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "placa", "marca", "modelo", "ano", "pecas", "estado", "cidade"]
         criar_arquivo = not os.path.exists(caminho)
