@@ -678,3 +678,31 @@ async def ver_leads_completo():
         leads.append(dict(zip(colunas, lead)))  # Converte para dicionário
     
     return {"leads": leads}
+
+@app.get("/ver-logs-completo")
+async def ver_logs_completo():
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    
+    # Obtém os nomes das colunas
+    cursor.execute("PRAGMA table_info(logs_pecas)")
+    colunas = [col[1] for col in cursor.fetchall()]
+    
+    # Obtém todos os logs
+    cursor.execute("SELECT * FROM logs_pecas")
+    resultados = cursor.fetchall()
+    conn.close()
+    
+    # Formata os resultados
+    logs_formatados = []
+    for log in resultados:
+        log_dict = {}
+        for i, coluna in enumerate(colunas):
+            log_dict[coluna] = log[i]
+        logs_formatados.append(log_dict)
+    
+    return {
+        "total_logs": len(resultados),
+        "colunas": colunas,
+        "logs": logs_formatados
+    }
