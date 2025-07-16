@@ -345,7 +345,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 if not precos:
                     return {"item": peca, "erro": "Nenhum preço válido"}
 
-                preco_medio = round(sum(precos) / len(precos), 2
+                preco_medio = round(sum(precos) / len(precos), 2)
                 
                 # Log da pesquisa
                 with open(LOG_CAMINHO, "a", encoding="utf-8", newline="") as f:
