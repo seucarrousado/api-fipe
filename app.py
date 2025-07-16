@@ -401,8 +401,10 @@ async def options_salvar_lead():
 async def salvar_lead(request: Request):
     try:
         lead_data = await request.json()
-
+        print("📩 Dados recebidos no salvar-lead:", lead_data)
+        
         caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
+        print("📁 Caminho onde vai salvar:", caminho)
         campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "placa", "marca", "modelo", "ano", "pecas", "estado", "cidade"]
         criar_arquivo = not os.path.exists(caminho)
 
@@ -426,7 +428,7 @@ async def salvar_lead(request: Request):
                 "estado": lead_data.get("estado", ""),
                 "cidade": lead_data.get("cidade", "")
             })
-
+            print("✅ Lead salvo com sucesso:", lead_data.get("email", "sem email"))
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Erro ao salvar lead: {str(e)}")
