@@ -524,22 +524,39 @@ async def get_cidades_por_estado(uf: str):
 @app.get("/exportar-logs")
 async def exportar_log_de_pecas():
     try:
-        exportar_logs_para_csv()
+        conn = sqlite3.connect(SQLITE_DB)
+        cursor = conn.cursor()
+        
+        # Cria arquivo temporário
+        temp_file = PASTA_RELATORIOS / "logs_temp.csv"
+        
+        # Busca dados e escreve no CSV
+        cursor.execute("SELECT * FROM logs_pecas ORDER BY data_hora DESC")
+        with open(temp_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['id', 'data_hora', 'marca', 'modelo', 'ano', 'peca', 'estado', 'cidade'])
+            writer.writerows(cursor.fetchall())
+        
+        # Substitui o arquivo antigo
+        if LOG_CAMINHO.exists():
+            LOG_CAMINHO.unlink()
+        temp_file.rename(LOG_CAMINHO)
+        
+        conn.close()
         
         if not LOG_CAMINHO.exists():
-            logger.error(f"Arquivo de logs não encontrado em {LOG_CAMINHO}")
-            raise HTTPException(status_code=404, detail="Arquivo de logs não encontrado")
+            raise HTTPException(status_code=404, detail="Arquivo de logs não foi criado")
             
-        logger.info(f"Enviando arquivo de logs: {LOG_CAMINHO}")
         return FileResponse(
             path=LOG_CAMINHO,
             filename="log_pecas.csv",
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=log_pecas.csv"}
         )
+        
     except Exception as e:
-        logger.error(f"Erro ao exportar logs: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro ao exportar logs: {str(e)}")
+        logger.error(f"Falha ao exportar logs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro na exportação: {str(e)}")
 
 # Sistema de leads
 @app.options("/salvar-lead")
