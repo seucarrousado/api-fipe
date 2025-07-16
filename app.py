@@ -661,3 +661,26 @@ async def enviar_sugestao_email(form: SugestaoForm):
     except Exception as e:
         logger.error(f"Erro geral: {str(e)}", exc_info=True)
         return {"status": "erro", "detalhe": f"Erro inesperado: {str(e)}"}
+        
+# ... (outros endpoints existentes)
+
+@app.get("/ver-leads")  # COLE AQUI SEU NOVO CÓDIGO
+async def ver_leads():
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM leads")
+    resultados = cursor.fetchall()
+    conn.close()
+    
+    leads_formatados = []
+    for lead in resultados:
+        leads_formatados.append({
+            "id": lead[0],
+            "data": lead[1],
+            "nome": lead[2],
+            "whatsapp": lead[4]
+        })
+    
+    return {"total_leads": len(resultados), "leads": leads_formatados}
+
+# ... (deixe o resto do arquivo intacto)
