@@ -14,6 +14,8 @@ from email.mime.text import MIMEText
 import smtplib
 from pathlib import Path
 from pydantic import BaseModel
+import sqlite3
+from typing import List, Dict
 
 # Configuração de diretórios
 BASE_DIR = Path(__file__).parent
@@ -24,6 +26,7 @@ PASTA_RELATORIOS.mkdir(exist_ok=True)
 LOG_CAMINHO = PASTA_RELATORIOS / "log_pecas.csv"
 ARQUIVO_CIDADES = BASE_DIR / "cidades_por_estado.json"
 LEADS_CAMINHO = PASTA_RELATORIOS / "leads.csv"
+SQLITE_DB = PASTA_RELATORIOS / "dados.db"
 
 app = FastAPI()
 
@@ -61,12 +64,137 @@ APIFY_ACTOR = os.getenv("APIFY_ACTOR")
 WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
 cache = TTLCache(maxsize=100, ttl=3600)
 
+# Inicialização do SQLite
+def init_db():
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    
+    # Tabela de logs de peças
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS logs_pecas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data_hora TEXT NOT NULL,
+        marca TEXT NOT NULL,
+        modelo TEXT NOT NULL,
+        ano TEXT NOT NULL,
+        peca TEXT NOT NULL,
+        estado TEXT NOT NULL,
+        cidade TEXT NOT NULL
+    )
+    """)
+    
+    # Tabela de leads
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data_hora TEXT NOT NULL,
+        nome TEXT NOT NULL,
+        email TEXT NOT NULL,
+        whatsapp TEXT NOT NULL,
+        objetivo TEXT NOT NULL,
+        placa TEXT NOT NULL,
+        marca TEXT NOT NULL,
+        modelo TEXT NOT NULL,
+        ano TEXT NOT NULL,
+        pecas TEXT NOT NULL,
+        estado TEXT NOT NULL,
+        cidade TEXT NOT NULL
+    )
+    """)
+    
+    conn.commit()
+    conn.close()
+
+# Chamada inicial para criar o banco de dados
+init_db()
+
+# Funções auxiliares para SQLite
+def salvar_log_peca(log_data: Dict):
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO logs_pecas (data_hora, marca, modelo, ano, peca, estado, cidade)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        log_data['data_hora'],
+        log_data['marca'],
+        log_data['modelo'],
+        log_data['ano'],
+        log_data['peca'],
+        log_data['estado'],
+        log_data['cidade']
+    ))
+    conn.commit()
+    conn.close()
+
+def salvar_lead_db(lead_data: Dict):
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO leads (
+        data_hora, nome, email, whatsapp, objetivo, placa, 
+        marca, modelo, ano, pecas, estado, cidade
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        lead_data['data_hora'],
+        lead_data['nome'],
+        lead_data['email'],
+        lead_data['whatsapp'],
+        lead_data['objetivo'],
+        lead_data['placa'],
+        lead_data['marca'],
+        lead_data['modelo'],
+        lead_data['ano'],
+        lead_data['pecas'],
+        lead_data['estado'],
+        lead_data['cidade']
+    ))
+    conn.commit()
+    conn.close()
+
+def exportar_logs_para_csv():
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    
+    # Obter todos os logs
+    cursor.execute("SELECT * FROM logs_pecas")
+    logs = cursor.fetchall()
+    
+    # Escrever no arquivo CSV
+    with open(LOG_CAMINHO, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(['id', 'data_hora', 'marca', 'modelo', 'ano', 'peca', 'estado', 'cidade'])
+        writer.writerows(logs)
+    
+    conn.close()
+    return LOG_CAMINHO
+
+def exportar_leads_para_csv():
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    
+    # Obter todos os leads
+    cursor.execute("SELECT * FROM leads")
+    leads = cursor.fetchall()
+    
+    # Escrever no arquivo CSV
+    with open(LEADS_CAMINHO, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            'id', 'data_hora', 'nome', 'email', 'whatsapp', 'objetivo',
+            'placa', 'marca', 'modelo', 'ano', 'pecas', 'estado', 'cidade'
+        ])
+        writer.writerows(leads)
+    
+    conn.close()
+    return LEADS_CAMINHO
+
 # Endpoint de ping
 @app.api_route("/ping", methods=["GET", "HEAD"])
 def ping(response: Response):
     return {"status": "ok"}
 
-# Endpoints Fipe
+# Endpoints Fipe (mantidos exatamente como estavam)
 @app.get("/marcas")
 async def listar_marcas():
     try:
@@ -123,14 +251,14 @@ async def consultar_fipe(fipe_code: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar FIPE: {str(e)}")
 
-# Funções auxiliares
+# Funções auxiliares (mantidas exatamente como estavam)
 def criar_slug(texto):
     texto = unidecode.unidecode(texto)
     texto = texto.lower()
     texto = re.sub(r'[^a-z0-9]+', '-', texto)
     return texto.strip('-')
 
-# Endpoint Wheel Size
+# Endpoint Wheel Size (mantido exatamente como estava)
 @app.get("/wheel-size")
 async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
     try:
@@ -190,7 +318,7 @@ async def buscar_medida_pneu(marca: str, modelo: str, ano_id: str):
         logger.error(f"Erro na Wheel Size API: {str(e)}")
         return {"erro": f"Falha na API: {str(e)}"}
 
-# Cálculos de desconto
+# Cálculos de desconto (mantidos exatamente como estavam)
 def calcular_desconto_estado(interior, exterior, valor_fipe):
     desconto = 0
     
@@ -223,7 +351,7 @@ def calcular_desconto_km(km, valor_fipe, ano):
     except:
         return 0
 
-# Endpoint principal de peças
+# Endpoint principal de peças (modificado para usar SQLite mas mantendo a mesma interface)
 @app.get("/pecas")
 async def buscar_precos_pecas(
     marca: str, 
@@ -301,7 +429,7 @@ async def buscar_precos_pecas(
         logger.error(f"Erro na consulta de peças: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro na consulta: {str(e)}")
         
-# Função para buscar preços
+# Função para buscar preços (modificada para usar SQLite mas mantendo a mesma interface)
 async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas, estado_usuario, cidade_usuario):
     api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
 
@@ -347,18 +475,16 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
 
                 preco_medio = round(sum(precos) / len(precos), 2)
                 
-                # Log da pesquisa
-                with open(LOG_CAMINHO, "a", encoding="utf-8", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([
-                        datetime.now().isoformat(),
-                        marca_nome,
-                        modelo_nome,
-                        ano_nome,
-                        peca,
-                        estado_usuario,
-                        cidade_usuario
-                    ])
+                # Log da pesquisa no SQLite
+                salvar_log_peca({
+                    'data_hora': datetime.now().isoformat(),
+                    'marca': marca_nome,
+                    'modelo': modelo_nome,
+                    'ano': ano_nome,
+                    'peca': peca,
+                    'estado': estado_usuario,
+                    'cidade': cidade_usuario
+                })
                     
                 return {
                     "item": peca,
@@ -378,7 +504,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
         total_abatimento = sum(item.get("abatido", 0) for item in resultados if isinstance(item, dict))
         return resultados, total_abatimento
 
-# Endpoints auxiliares
+# Endpoints auxiliares (mantidos exatamente como estavam)
 @app.get("/cidades/{uf}")
 async def get_cidades_por_estado(uf: str):
     import json
@@ -392,13 +518,18 @@ async def get_cidades_por_estado(uf: str):
     except Exception as e:
         return {"erro": f"Erro ao carregar cidades: {str(e)}"}
 
+# Endpoint de exportação de logs (modificado para gerar CSV a partir do SQLite)
 @app.get("/exportar-logs")
 async def exportar_log_de_pecas():
-    if not os.path.exists(LOG_CAMINHO):
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-    return FileResponse(LOG_CAMINHO, filename="log_pecas.csv", media_type="text/csv")
+    try:
+        exportar_logs_para_csv()
+        if not os.path.exists(LOG_CAMINHO):
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+        return FileResponse(LOG_CAMINHO, filename="log_pecas.csv", media_type="text/csv")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao exportar logs: {str(e)}")
 
-# Sistema de leads
+# Sistema de leads (modificado para usar SQLite mas mantendo a mesma interface)
 @app.options("/salvar-lead")
 async def options_salvar_lead():
     return {"Allow": "POST"}
@@ -417,67 +548,52 @@ async def salvar_lead(request: Request):
             logger.error("❌ Sem permissão para escrever no diretório")
             raise HTTPException(status_code=500, detail="Sem permissão para escrever no diretório")
         
-        campos = [
-            "data_hora", "nome", "email", "whatsapp", "objetivo", 
-            "placa", "marca", "modelo", "ano", "pecas", "estado", "cidade"
-        ]
+        # Salva no SQLite
+        linha = {
+            "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "nome": lead_data.get("nome", ""),
+            "email": lead_data.get("email", ""),
+            "whatsapp": lead_data.get("whatsapp", ""),
+            "objetivo": lead_data.get("objetivo", ""),
+            "placa": lead_data.get("placa", ""),
+            "marca": lead_data.get("marca", ""),
+            "modelo": lead_data.get("modelo", ""),
+            "ano": lead_data.get("ano", ""),
+            "pecas": lead_data.get("pecas", ""),
+            "estado": lead_data.get("estado", ""),
+            "cidade": lead_data.get("cidade", "")
+        }
         
-        # Verifica se o arquivo existe para decidir se escreve o cabeçalho
-        arquivo_existe = os.path.exists(LEADS_CAMINHO)
-        
-        with open(LEADS_CAMINHO, mode="a", encoding="utf-8", newline="") as arquivo:
-            writer = csv.DictWriter(arquivo, fieldnames=campos)
+        salvar_lead_db(linha)
+        logger.info(f"✅ Lead salvo com sucesso no SQLite: {linha}")
             
-            if not arquivo_existe:
-                writer.writeheader()
-                logger.info("ℹ️ Arquivo criado com cabeçalho")
-                
-            linha = {
-                "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "nome": lead_data.get("nome", ""),
-                "email": lead_data.get("email", ""),
-                "whatsapp": lead_data.get("whatsapp", ""),
-                "objetivo": lead_data.get("objetivo", ""),
-                "placa": lead_data.get("placa", ""),
-                "marca": lead_data.get("marca", ""),
-                "modelo": lead_data.get("modelo", ""),
-                "ano": lead_data.get("ano", ""),
-                "pecas": lead_data.get("pecas", ""),
-                "estado": lead_data.get("estado", ""),
-                "cidade": lead_data.get("cidade", "")
-            }
-            
-            writer.writerow(linha)
-            logger.info(f"✅ Lead salvo com sucesso: {linha}")
-            
-        # Verifica se o arquivo foi realmente atualizado
-        if os.path.exists(LEADS_CAMINHO):
-            with open(LEADS_CAMINHO, "r", encoding="utf-8") as f:
-                linhas = f.readlines()
-                logger.info(f"ℹ️ Arquivo agora tem {len(linhas)} linhas")
-        
         return {"status": "ok", "arquivo": str(LEADS_CAMINHO)}
         
     except Exception as e:
         logger.error(f"❌ Erro ao salvar lead: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
+# Endpoint de exportação de leads (modificado para gerar CSV a partir do SQLite)
 @app.get("/exportar-leads")
 async def exportar_leads():
-    if not os.path.exists(LEADS_CAMINHO):
-        raise HTTPException(status_code=404, detail="Nenhum lead registrado")
-    return FileResponse(LEADS_CAMINHO, media_type="text/csv", filename="leads.csv")
+    try:
+        exportar_leads_para_csv()
+        if not os.path.exists(LEADS_CAMINHO):
+            raise HTTPException(status_code=404, detail="Nenhum lead registrado")
+        return FileResponse(LEADS_CAMINHO, media_type="text/csv", filename="leads.csv")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao exportar leads: {str(e)}")
 
-# Modelo para sugestões
+# Modelo para sugestões (mantido exatamente como estava)
 class SugestaoForm(BaseModel):
     mensagem: str
 
-# Endpoint de saúde
+# Endpoint de saúde (mantido exatamente como estava)
 @app.get("/")
 async def health_check():
     return {"status": "online", "versao": "1.0.0"}
 
-# Endpoint para enviar sugestões
+# Endpoint para enviar sugestões (mantido exatamente como estava)
 @app.post("/enviar-sugestao-email")
 async def enviar_sugestao_email(form: SugestaoForm):
     try:
