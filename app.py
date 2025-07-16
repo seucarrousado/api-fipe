@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from cachetools import TTLCache
 import httpx
@@ -12,26 +12,30 @@ import csv
 from fastapi.responses import FileResponse
 from email.mime.text import MIMEText
 import smtplib
+from pathlib import Path
+from pydantic import BaseModel
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Configuração de pastas
-PASTA_RELATORIOS = os.path.join(BASE_DIR, "relatorios")
-os.makedirs(PASTA_RELATORIOS, exist_ok=True)
+# Configuração de diretórios
+BASE_DIR = Path(__file__).parent
+PASTA_RELATORIOS = BASE_DIR / "relatorios"
+PASTA_RELATORIOS.mkdir(exist_ok=True)
 
 # Caminhos de arquivos
-LOG_CAMINHO = os.path.join(PASTA_RELATORIOS, "log_pecas.csv")
-ARQUIVO_CIDADES = os.path.join(BASE_DIR, "cidades_por_estado.json")
+LOG_CAMINHO = PASTA_RELATORIOS / "log_pecas.csv"
+ARQUIVO_CIDADES = BASE_DIR / "cidades_por_estado.json"
+LEADS_CAMINHO = PASTA_RELATORIOS / "leads.csv"
 
 app = FastAPI()
 
-from fastapi import Response
-@app.api_route("/ping", methods=["GET", "HEAD"])
-def ping(response: Response):
-    return {"status": "ok"}
-
 # Configuração de logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(PASTA_RELATORIOS / "api.log")
+    ]
+)
 logger = logging.getLogger("calculadora_fipe")
 logger.info("API Inicializada com sucesso!")
 
@@ -56,6 +60,11 @@ APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
 WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
 cache = TTLCache(maxsize=100, ttl=3600)
+
+# Endpoint de ping
+@app.api_route("/ping", methods=["GET", "HEAD"])
+def ping(response: Response):
+    return {"status": "ok"}
 
 # Endpoints Fipe
 @app.get("/marcas")
@@ -336,7 +345,7 @@ async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pec
                 if not precos:
                     return {"item": peca, "erro": "Nenhum preço válido"}
 
-                preco_medio = round(sum(precos) / len(precos), 2)
+                preco_medio = round(sum(precos) / len(precos), 2
                 
                 # Log da pesquisa
                 with open(LOG_CAMINHO, "a", encoding="utf-8", newline="") as f:
@@ -385,10 +394,9 @@ async def get_cidades_por_estado(uf: str):
 
 @app.get("/exportar-logs")
 async def exportar_log_de_pecas():
-    caminho = "/opt/render/project/src/relatorios/log_pecas.csv"
-    if not os.path.exists(caminho):
+    if not os.path.exists(LOG_CAMINHO):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-    return FileResponse(caminho, filename="log_pecas.csv", media_type="text/csv")
+    return FileResponse(LOG_CAMINHO, filename="log_pecas.csv", media_type="text/csv")
 
 # Sistema de leads
 @app.options("/salvar-lead")
@@ -399,20 +407,32 @@ async def options_salvar_lead():
 async def salvar_lead(request: Request):
     try:
         lead_data = await request.json()
-        print("📩 Dados recebidos no salvar-lead:", lead_data)
+        logger.info(f"📩 Dados recebidos no salvar-lead: {lead_data}")
         
-        caminho = os.path.abspath(os.path.join("relatorios", "leads.csv"))
-        print("📁 Caminho onde vai salvar:", caminho)
-        campos = ["data_hora", "nome", "email", "whatsapp", "objetivo", "placa", "marca", "modelo", "ano", "pecas", "estado", "cidade"]
-        criar_arquivo = not os.path.exists(caminho)
-
-        with open(caminho, mode="a", encoding="utf-8", newline="") as arquivo:
+        # Garante que o diretório existe
+        os.makedirs(PASTA_RELATORIOS, exist_ok=True)
+        
+        # Verifica permissões de escrita
+        if not os.access(PASTA_RELATORIOS, os.W_OK):
+            logger.error("❌ Sem permissão para escrever no diretório")
+            raise HTTPException(status_code=500, detail="Sem permissão para escrever no diretório")
+        
+        campos = [
+            "data_hora", "nome", "email", "whatsapp", "objetivo", 
+            "placa", "marca", "modelo", "ano", "pecas", "estado", "cidade"
+        ]
+        
+        # Verifica se o arquivo existe para decidir se escreve o cabeçalho
+        arquivo_existe = os.path.exists(LEADS_CAMINHO)
+        
+        with open(LEADS_CAMINHO, mode="a", encoding="utf-8", newline="") as arquivo:
             writer = csv.DictWriter(arquivo, fieldnames=campos)
             
-            if criar_arquivo:
+            if not arquivo_existe:
                 writer.writeheader()
+                logger.info("ℹ️ Arquivo criado com cabeçalho")
                 
-            writer.writerow({
+            linha = {
                 "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "nome": lead_data.get("nome", ""),
                 "email": lead_data.get("email", ""),
@@ -425,31 +445,32 @@ async def salvar_lead(request: Request):
                 "pecas": lead_data.get("pecas", ""),
                 "estado": lead_data.get("estado", ""),
                 "cidade": lead_data.get("cidade", "")
-            })
-            print("✅ Lead salvo com sucesso:", lead_data.get("email", "sem email"))
-        return {"status": "ok"}
+            }
+            
+            writer.writerow(linha)
+            logger.info(f"✅ Lead salvo com sucesso: {linha}")
+            
+        # Verifica se o arquivo foi realmente atualizado
+        if os.path.exists(LEADS_CAMINHO):
+            with open(LEADS_CAMINHO, "r", encoding="utf-8") as f:
+                linhas = f.readlines()
+                logger.info(f"ℹ️ Arquivo agora tem {len(linhas)} linhas")
+        
+        return {"status": "ok", "arquivo": str(LEADS_CAMINHO)}
+        
     except Exception as e:
-        logger.error(f"Erro ao salvar lead: {str(e)}")
+        logger.error(f"❌ Erro ao salvar lead: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 @app.get("/exportar-leads")
 async def exportar_leads():
-    caminho = os.path.join(PASTA_RELATORIOS, "leads.csv")
-    if not os.path.exists(caminho):
+    if not os.path.exists(LEADS_CAMINHO):
         raise HTTPException(status_code=404, detail="Nenhum lead registrado")
-    return FileResponse(caminho, media_type="text/csv", filename="leads.csv")
+    return FileResponse(LEADS_CAMINHO, media_type="text/csv", filename="leads.csv")
 
-from pydantic import BaseModel
-import smtplib
-from email.mime.text import MIMEText
-import os
-from fastapi import HTTPException
-
-# Definição única do modelo
+# Modelo para sugestões
 class SugestaoForm(BaseModel):
-    mensagem: str  # Apenas o campo necessário
-
-# ... outras partes do código ...
+    mensagem: str
 
 # Endpoint de saúde
 @app.get("/")
