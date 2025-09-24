@@ -51,7 +51,7 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLO
     "https://www.seucarrousado.com.br",                   # FRONT REAL (se houver)
     "https://powderblue-squid-275540.hostingersite.com",  # FRONT TESTE
     "http://localhost"
-    "https://builder.hostinger.com"
+    "https://builder.hostinger.com/A3Q2pPVOoRUNv05q"
 ]
 
 app.add_middleware(
