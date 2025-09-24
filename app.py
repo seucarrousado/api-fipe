@@ -17,6 +17,8 @@ from pydantic import BaseModel
 import sqlite3
 from typing import Dict, List
 import json
+import time
+import hashlib
 
 # Configuração de diretórios
 BASE_DIR = Path(__file__).parent
@@ -42,19 +44,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger("calculadora_fipe")
 
-# Configuração CORS
-origins = [
-    "https://calculadora.seucarrousado.com.br",
-    "http://localhost"
+# PROD-ENV START: Configuração CORS para produção
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else [
+    "https://calculadora.seucarrousado.com.br",           # FRONT REAL
+    "https://seucarrousado.com.br",                       # FRONT REAL (se houver)
+    "https://www.seucarrousado.com.br",                   # FRONT REAL (se houver)
+    "https://powderblue-squid-275540.hostingersite.com",  # FRONT TESTE
+    "http://localhost"                                    # DESENVOLVIMENTO
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
+# TEST-ENV END
+
+# TEST-ENV START: Endpoint de healthcheck
+@app.get("/healthz")
+def healthz():
+    return {"ok": True, "env": os.getenv("ENV", "test")}
+# TEST-ENV END
 
 # Configurações de API
 BASE_URL = "https://api.invertexto.com/v1/fipe"
@@ -62,6 +74,88 @@ TOKEN = os.getenv("INVERTEXTO_API_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 APIFY_ACTOR = os.getenv("APIFY_ACTOR")
 WHEEL_SIZE_TOKEN = os.getenv("WHEEL_SIZE_TOKEN")
+
+# SHOPEE START: Configurações da Shopee Affiliate API
+SHOPEE_ID = os.getenv("SHOPEE_ID", "")
+SENHA_SHOPEE = os.getenv("SENHA_SHOPEE", "")
+SHOPEE_GQL = "https://open-api.affiliate.shopee.com.br/graphql"
+
+# Query GraphQL para buscar produtos - versão simplificada para teste
+PRODUCT_OFFER_Q = """
+query ProductOffer($keyword: String!) {
+  productOfferV2(keyword: $keyword) {
+    nodes {
+      productName
+      itemId
+      price
+      imageUrl
+      shopName
+      productLink
+      offerLink
+    }
+  }
+}
+"""
+# SHOPEE END
+
+# SHOPEE START: Funções de autenticação e integração
+def _canonical_json(obj: dict) -> str:
+    """Converte objeto para JSON canônico (sem espaços extras, ordenado)"""
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+
+def _auth_header(payload_str: str) -> str:
+    """Gera header de autenticação SHA256 para Shopee"""
+    ts = str(int(time.time()))
+    factor = f"{SHOPEE_ID}{ts}{payload_str}{SENHA_SHOPEE}"
+    
+    sig = hashlib.sha256(factor.encode("utf-8")).hexdigest()
+    
+    return f"SHA256 Credential={SHOPEE_ID}, Timestamp={ts}, Signature={sig}"
+
+async def shopee_graphql(query: str, variables: dict):
+    """Executa query GraphQL na Shopee com autenticação"""
+    # Verificar credenciais
+    if not SHOPEE_ID or not SENHA_SHOPEE:
+        logger.error("Credenciais da Shopee não configuradas!")
+        raise RuntimeError("Credenciais da Shopee não configuradas")
+    
+    body = {"query": query, "variables": variables}
+    payload_str = _canonical_json(body)
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": _auth_header(payload_str),
+    }
+    
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(SHOPEE_GQL, headers=headers, content=payload_str.encode("utf-8"))
+        r.raise_for_status()
+        data = r.json()
+        
+        if "errors" in data and data["errors"]:
+            raise RuntimeError(f"Shopee GraphQL error: {data['errors']}")
+        return data["data"]
+
+async def buscar_pecas_shopee(keyword: str, page: int = 1, limit: int = 20):
+    """Busca produtos na Shopee usando GraphQL"""
+    try:
+        data = await shopee_graphql(PRODUCT_OFFER_Q, {"keyword": keyword})
+        nodes = data["productOfferV2"]["nodes"]
+        cards = []
+        for it in nodes:
+            link = it.get("offerLink") or it.get("productLink")
+            cards.append({
+                "titulo": it["productName"],
+                "preco": float(str(it["price"]).replace(",", ".")),
+                "imagem": it["imageUrl"],
+                "link": link,
+                "loja": it.get("shopName", ""),
+            })
+        return cards
+    except Exception as e:
+        logger.error(f"Erro ao buscar produtos na Shopee: {str(e)}")
+        return []
+# SHOPEE END
+
 cache = TTLCache(maxsize=100, ttl=3600)
 
 # Inicialização do SQLite
@@ -147,6 +241,46 @@ def salvar_lead_db(lead_data: Dict):
         lead_data['estado'],
         lead_data['cidade']
     ))
+    conn.commit()
+    conn.close()
+
+def salvar_log_basico(marca: str, modelo: str, ano: str, pecas: str, estado: str, cidade: str):
+    """Salva log básico quando usuário clica 'Calcular Valor Final'"""
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO leads (
+        data_hora, nome, email, whatsapp, objetivo, placa, 
+        marca, modelo, ano, pecas, estado, cidade
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "",  # nome vazio
+        "",  # email vazio
+        "",  # whatsapp vazio
+        "",  # objetivo vazio
+        "",  # placa vazia
+        marca,
+        modelo,
+        ano,
+        pecas,
+        estado,
+        cidade
+    ))
+    conn.commit()
+    lead_id = cursor.lastrowid
+    conn.close()
+    return lead_id
+
+def atualizar_lead_completo(lead_id: int, nome: str, email: str, whatsapp: str, objetivo: str, placa: str):
+    """Atualiza lead com dados pessoais quando usuário preenche modal"""
+    conn = sqlite3.connect(SQLITE_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE leads SET 
+        nome = ?, email = ?, whatsapp = ?, objetivo = ?, placa = ?
+    WHERE id = ?
+    """, (nome, email, whatsapp, objetivo, placa, lead_id))
     conn.commit()
     conn.close()
 
@@ -355,7 +489,7 @@ def calcular_desconto_km(km, valor_fipe, ano):
     except:
         return 0
 
-# Endpoint principal de peças
+# SHOPEE START: Endpoint principal de peças usando Shopee
 @app.get("/pecas")
 async def buscar_precos_pecas(
     marca: str, 
@@ -368,7 +502,8 @@ async def buscar_precos_pecas(
     estado_exterior: str = Query(""),
     ipva_valor: float = Query(0.0),
     estado_usuario: str = Query(""),
-    cidade_usuario: str = Query("")
+    cidade_usuario: str = Query(""),
+    limit: int = Query(20)
 ):
     try:
         from urllib.parse import unquote
@@ -411,9 +546,76 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
-        relatorio, total_pecas = await buscar_precos_e_gerar_relatorio(
-            marca, modelo_nome, ano.split('-')[0], lista_pecas, estado_usuario, cidade_usuario
-        )
+        # Buscar produtos na Shopee para cada peça
+        relatorio = []
+        total_pecas = 0
+        
+        for peca in lista_pecas:
+            # SHOPEE START: Estratégia de busca melhorada
+            logger.info(f"🔍 Buscando peça: '{peca}'")
+            logger.info(f"📋 Dados do veículo - Marca: '{marca}', Modelo: '{modelo_nome}', Ano: '{ano}'")
+            
+            # Tratamento especial para pneus - buscar apenas com a medida, sem modelo/ano
+            if peca.lower().startswith("kit pneus"):
+                keywords_tentativas = [peca]  # Buscar apenas "kit pneus 175/65 R14 82T"
+            else:
+                # SHOPEE API: Funciona apenas com peça + modelo básico (sem marca, sem versão)
+                # Extrair apenas o nome básico do modelo (ex: "ARGO" em vez de "ARGO 1.0 6V Flex")
+                modelo_basico = modelo_nome.split()[0]  # Pega apenas a primeira palavra
+                
+                keywords_tentativas = [
+                    f"{peca} {modelo_basico} {ano.split('-')[0]}",  # Peça + modelo básico + ano (ex: "kit disco pastilha ARGO 2022")
+                    f"{peca} {modelo_basico}",  # Peça + modelo básico (ex: "kit disco pastilha ARGO")
+                ]
+            
+            logger.info(f"📝 Keywords que serão testadas: {keywords_tentativas}")
+            
+            cards = []
+            keyword_usado = ""
+            
+            for keyword in keywords_tentativas:
+                logger.info(f"Tentando keyword: '{keyword}'")
+                cards = await buscar_pecas_shopee(keyword, page=1, limit=5)
+                logger.info(f"Resultado para '{keyword}': {len(cards)} cards encontrados")
+                if cards:
+                    keyword_usado = keyword
+                    logger.info(f"✅ Sucesso com keyword: '{keyword}' - {len(cards)} produtos")
+                    # Mostrar os primeiros produtos encontrados
+                    for i, card in enumerate(cards[:2]):  # Mostrar apenas os 2 primeiros
+                        logger.info(f"   📦 Produto {i+1}: '{card['titulo']}' - R$ {card['preco']}")
+                    break
+                else:
+                    logger.info(f"❌ Nenhum resultado para: '{keyword}'")
+            
+            logger.info(f"Cards retornados para {peca}: {len(cards)} (keyword: {keyword_usado})")
+            
+            if cards:
+                preco_medio = sum(card["preco"] for card in cards) / len(cards)
+                total_pecas += preco_medio
+                logger.info(f"Preço médio calculado para {peca}: {preco_medio}")
+                
+                relatorio.append({
+                    "item": peca,
+                    "preco_medio": round(preco_medio, 2),
+                    "abatido": round(preco_medio, 2),
+                    "cards": cards[:3]  # Primeiros 3 produtos
+                })
+            else:
+                logger.warning(f"Nenhum card encontrado para {peca} em nenhuma tentativa")
+                relatorio.append({
+                    "item": peca,
+                    "preco_medio": 0,
+                    "abatido": 0,
+                    "cards": []
+                })
+            # SHOPEE END
+        
+        logger.info(f"Relatório final: {json.dumps(relatorio, indent=2)}")
+        
+        # Salvar log básico quando usuário clica "Calcular Valor Final"
+        pecas_str = ", ".join(lista_pecas)  # Converter lista para string
+        lead_id = salvar_log_basico(marca, modelo_nome, ano, pecas_str, estado_usuario, cidade_usuario)
+        logger.info(f"📝 Log básico salvo com ID: {lead_id}")
         
         desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
         desconto_km = calcular_desconto_km(km, valor_fipe, ano.split('-')[0])
@@ -428,85 +630,14 @@ async def buscar_precos_pecas(
             "ipva_desconto": ipva_valor,
             "km_desconto": {"valor": desconto_km},
             "relatorio_detalhado": relatorio,
+            "lead_id": lead_id  # Retornar ID para o frontend
         }
     except Exception as e:
         logger.error(f"Erro na consulta de peças: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro na consulta: {str(e)}")
+# SHOPEE END
         
-# Função para buscar preços
-async def buscar_precos_e_gerar_relatorio(marca_nome, modelo_nome, ano_nome, pecas_selecionadas, estado_usuario, cidade_usuario):
-    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        async def fetch_peca(peca):
-            termo_busca = peca if peca.lower().startswith("kit pneus") else f"{peca} {marca_nome} {modelo_nome} {ano_nome}"
-            payload = {"keyword": termo_busca, "pages": 1, "promoted": False}
-            
-            try:
-                response = await client.post(api_url, json=payload)
-                response.raise_for_status()
-                dados_completos = response.json()
-                
-                if not isinstance(dados_completos, list) or not dados_completos:
-                    return {"item": peca, "erro": "Sem resultados válidos"}
-
-                precos, links, imagens, nomes, precos_texto = [], [], [], [], []
-
-                for item in dados_completos[:5]:
-                    if not peca.strip().lower().startswith("kit pneus"):
-                        titulo = item.get("eTituloProduto", "").lower()
-                        modelo_base = modelo_nome.lower().split()[0]
-                        if modelo_base not in titulo:
-                            continue
-
-                    preco_str = item.get("novoPreco")
-                    if not preco_str:
-                        continue
-                    
-                    try:
-                        preco = float(str(preco_str).replace(".", "").replace(",", "."))
-                    except ValueError:
-                        continue
-                        
-                    precos.append(preco)
-                    links.append(item.get("zProdutoLink", ""))
-                    imagens.append(item.get("imagemLink", ""))
-                    nomes.append(item.get("eTituloProduto", ""))
-                    precos_texto.append(preco_str)
-
-                if not precos:
-                    return {"item": peca, "erro": "Nenhum preço válido"}
-
-                preco_medio = round(sum(precos) / len(precos), 2)
-                
-                # Log da pesquisa
-                salvar_log_peca({
-                    'data_hora': datetime.now().isoformat(),
-                    'marca': marca_nome,
-                    'modelo': modelo_nome,
-                    'ano': ano_nome,
-                    'peca': peca,
-                    'estado': estado_usuario,
-                    'cidade': cidade_usuario
-                })
-                    
-                return {
-                    "item": peca,
-                    "preco_medio": preco_medio,
-                    "abatido": preco_medio,
-                    "links": links[:3],
-                    "imagens": imagens[:3],
-                    "nomes": nomes[:3],
-                    "precos": precos_texto[:3]
-                }
-            except Exception as e:
-                return {"item": peca, "erro": f"Falha: {str(e)}"}
-
-        tasks = [fetch_peca(peca) for peca in pecas_selecionadas if peca]
-        resultados = await asyncio.gather(*tasks)
-
-        total_abatimento = sum(item.get("abatido", 0) for item in resultados if isinstance(item, dict))
-        return resultados, total_abatimento
+# Função antiga removida - agora usando Shopee
 
 # Endpoints auxiliares
 @app.get("/cidades/{uf}")
@@ -577,24 +708,38 @@ async def salvar_lead(request: Request):
             logger.error("❌ Sem permissão para escrever no diretório")
             raise HTTPException(status_code=500, detail="Sem permissão para escrever no diretório")
         
-        # Salva no SQLite
-        linha = {
-            "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "nome": lead_data.get("nome", ""),
-            "email": lead_data.get("email", ""),
-            "whatsapp": lead_data.get("whatsapp", ""),
-            "objetivo": lead_data.get("objetivo", ""),
-            "placa": lead_data.get("placa", ""),
-            "marca": lead_data.get("marca", ""),
-            "modelo": lead_data.get("modelo", ""),
-            "ano": lead_data.get("ano", ""),
-            "pecas": lead_data.get("pecas", ""),
-            "estado": lead_data.get("estado", ""),
-            "cidade": lead_data.get("cidade", "")
-        }
+        # Verificar se tem lead_id (atualizar existente) ou criar novo
+        lead_id = lead_data.get("lead_id")
         
-        salvar_lead_db(linha)
-        logger.info(f"✅ Lead salvo com sucesso no SQLite: {linha}")
+        if lead_id:
+            # Atualizar lead existente com dados pessoais
+            atualizar_lead_completo(
+                lead_id,
+                lead_data.get("nome", ""),
+                lead_data.get("email", ""),
+                lead_data.get("whatsapp", ""),
+                lead_data.get("objetivo", ""),
+                lead_data.get("placa", "")
+            )
+            logger.info(f"✅ Lead {lead_id} atualizado com dados pessoais")
+        else:
+            # Criar novo lead completo (fallback)
+            linha = {
+                "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "nome": lead_data.get("nome", ""),
+                "email": lead_data.get("email", ""),
+                "whatsapp": lead_data.get("whatsapp", ""),
+                "objetivo": lead_data.get("objetivo", ""),
+                "placa": lead_data.get("placa", ""),
+                "marca": lead_data.get("marca", ""),
+                "modelo": lead_data.get("modelo", ""),
+                "ano": lead_data.get("ano", ""),
+                "pecas": lead_data.get("pecas", ""),
+                "estado": lead_data.get("estado", ""),
+                "cidade": lead_data.get("cidade", "")
+            }
+            salvar_lead_db(linha)
+            logger.info(f"✅ Novo lead criado: {linha}")
             
         return {"status": "ok", "arquivo": str(LEADS_CAMINHO)}
         
@@ -698,25 +843,27 @@ async def ver_leads_completo():
 
 @app.get("/ver-logs-completo")
 async def ver_logs_completo():
+    # CORREÇÃO: Mostrar dados da tabela 'leads' em vez de 'logs_pecas'
+    # para evitar duplicação (uma entrada por análise completa)
     conn = sqlite3.connect(SQLITE_DB)
     cursor = conn.cursor()
     
-    # Obtém os nomes das colunas
-    cursor.execute("PRAGMA table_info(logs_pecas)")
+    # Obtém os nomes das colunas da tabela leads
+    cursor.execute("PRAGMA table_info(leads)")
     colunas = [col[1] for col in cursor.fetchall()]
     
-    # Obtém todos os logs
-    cursor.execute("SELECT * FROM logs_pecas")
+    # Obtém todos os leads (análises completas)
+    cursor.execute("SELECT * FROM leads ORDER BY data_hora DESC")
     resultados = cursor.fetchall()
     conn.close()
     
     # Formata os resultados
     logs_formatados = []
-    for log in resultados:
-        log_dict = {}
+    for lead in resultados:
+        lead_dict = {}
         for i, coluna in enumerate(colunas):
-            log_dict[coluna] = log[i]
-        logs_formatados.append(log_dict)
+            lead_dict[coluna] = lead[i]
+        logs_formatados.append(lead_dict)
     
     return {
         "total_logs": len(resultados),
