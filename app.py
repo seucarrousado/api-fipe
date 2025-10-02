@@ -588,12 +588,14 @@ async def buscar_precos_pecas(
             modelo_basico = modelo_nome.split()[0] if modelo_nome else ""
             base_ano = ano.split('-')[0] if '-' in ano else ano
 
-            # Sugerir kit de óleo e filtros com modelo/ano
+            # Sugerir kit de óleo e filtros com modelo/ano (com fallback sem "kit ")
             sugeridos_oleo = []
             try:
                 keywords_oleo = [
                     f"kit óleo filtros {modelo_basico} {base_ano}".strip(),
                     f"kit óleo filtros {modelo_basico}".strip(),
+                    f"óleo filtros {modelo_basico} {base_ano}".strip(),
+                    f"óleo filtros {modelo_basico}".strip(),
                 ]
                 for kw in keywords_oleo:
                     if not kw.strip():
