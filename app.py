@@ -501,17 +501,26 @@ def calcular_desconto_estado(interior, exterior, valor_fipe):
     return desconto
 
 def calcular_desconto_km(km, valor_fipe, ano):
+    """Calcula desconto por km excedente.
+
+    Regra proposta (mais alinhada ao mercado):
+      - km_esperado = idade_anos * 15000
+      - excedente = max(0, km_informado - km_esperado)
+      - desconto = valor_fipe * (excedente / 10000) * 0.02  # 2% a cada 10.000 km
+      - teto: máximo de 10% do valor_fipe
+    """
     try:
+        ano_num = int(str(ano)[:4]) if len(str(ano)) >= 4 else int(ano)
         ano_atual = datetime.now().year
-        idade = ano_atual - int(ano)
-        km_medio_esperado = idade * 15000
-        
-        if km > km_medio_esperado:
-            excedente = km - km_medio_esperado
-            return valor_fipe * (excedente / 1000) * 0.005
-        return 0
-    except:
-        return 0
+        idade = max(0, ano_atual - ano_num)
+        km_esperado = idade * 15000
+
+        excedente = max(0, float(km) - float(km_esperado))
+        desconto = valor_fipe * (excedente / 10000.0) * 0.02
+        teto = valor_fipe * 0.10
+        return max(0.0, min(desconto, teto))
+    except Exception:
+        return 0.0
 
 # SHOPEE START: Endpoint principal de peças usando Shopee
 @app.get("/pecas")
