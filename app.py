@@ -50,8 +50,7 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLO
     "https://seucarrousado.com.br",                       # FRONT REAL (se houver)
     "https://www.seucarrousado.com.br",                   # FRONT REAL (se houver)
     "https://powderblue-squid-275540.hostingersite.com",  # FRONT TESTE
-    "http://localhost"
-    "https://builder.hostinger.com/A3Q2pPVOoRUNv05q"
+    "http://localhost"                                    # DESENVOLVIMENTO
 ]
 
 app.add_middleware(
@@ -98,6 +97,30 @@ query ProductOffer($keyword: String!) {
 }
 """
 # SHOPEE END
+
+# Normalização leve para fallbacks de busca
+PLURAL_TO_SINGULAR = {
+    "pastilhas": "pastilha",
+    "discos": "disco",
+    "filtros": "filtro",
+    "freios": "freio",
+    "amortecedores": "amortecedor",
+    "retrovisores": "retrovisor",
+}
+
+def _remove_kit_prefix(piece_text: str) -> str:
+    text = piece_text.strip()
+    if text.lower().startswith("kit "):
+        return text[4:].strip()
+    return text
+
+def _to_singular_words(piece_text: str) -> str:
+    words = piece_text.split()
+    normalized_words = []
+    for word in words:
+        lowered = word.lower()
+        normalized_words.append(PLURAL_TO_SINGULAR.get(lowered, word))
+    return " ".join(normalized_words)
 
 # SHOPEE START: Funções de autenticação e integração
 def _canonical_json(obj: dict) -> str:
@@ -547,10 +570,73 @@ async def buscar_precos_pecas(
                 valor_fipe = float(valor_encontrado)
                 cache[cache_key] = valor_fipe
 
-        # Buscar produtos na Shopee para cada peça
+        # Caso não haja peças selecionadas, sugerir kits úteis
         relatorio = []
         total_pecas = 0
-        
+
+        if not lista_pecas:
+            logger.info("Nenhuma peça selecionada. Gerando sugestões automáticas (óleo, limpeza, socorro)...")
+            modelo_basico = modelo_nome.split()[0] if modelo_nome else ""
+            base_ano = ano.split('-')[0] if '-' in ano else ano
+
+            # Sugerir kit de óleo e filtros com modelo/ano
+            sugeridos_oleo = []
+            try:
+                keywords_oleo = [
+                    f"kit óleo filtros {modelo_basico} {base_ano}".strip(),
+                    f"kit óleo filtros {modelo_basico}".strip(),
+                ]
+                for kw in keywords_oleo:
+                    if not kw.strip():
+                        continue
+                    logger.info(f"Sugestão óleo - tentando keyword: '{kw}'")
+                    sugeridos_oleo = await buscar_pecas_shopee(kw, page=1, limit=5)
+                    if sugeridos_oleo:
+                        break
+                sugeridos_oleo = sugeridos_oleo[:3]
+            except Exception as e:
+                logger.warning(f"Falha ao buscar sugestão 'kit óleo filtros': {e}")
+                sugeridos_oleo = []
+
+            # Sugerir kits genéricos SEM dados do carro
+            try:
+                sugeridos_limpeza = (await buscar_pecas_shopee("kit limpeza automotiva", page=1, limit=5))[:3]
+            except Exception:
+                sugeridos_limpeza = []
+
+            try:
+                sugeridos_socorro = (await buscar_pecas_shopee("kit socorro automotivo", page=1, limit=5))[:3]
+            except Exception:
+                sugeridos_socorro = []
+
+            # Salvar log básico
+            pecas_str = ", ".join(lista_pecas)
+            lead_id = salvar_log_basico(marca, modelo_nome, ano, pecas_str, estado_usuario, cidade_usuario)
+            logger.info(f"📝 Log básico salvo com ID: {lead_id}")
+
+            desconto_estado = calcular_desconto_estado(estado_interior, estado_exterior, valor_fipe)
+            desconto_km = calcular_desconto_km(km, valor_fipe, base_ano)
+            total_descontos = desconto_estado + desconto_km + ipva_valor + total_pecas
+            valor_final = valor_fipe - total_descontos
+
+            return {
+                "valor_fipe": valor_fipe,
+                "total_abatido": total_descontos,
+                "valor_final": valor_final,
+                "desconto_estado": desconto_estado,
+                "ipva_desconto": ipva_valor,
+                "km_desconto": {"valor": desconto_km},
+                "relatorio_detalhado": relatorio,
+                "lead_id": lead_id,
+                "sugestao_auto": True,
+                "sugestoes": {
+                    "oleo": sugeridos_oleo,
+                    "limpeza": sugeridos_limpeza,
+                    "socorro": sugeridos_socorro
+                }
+            }
+
+        # Buscar produtos na Shopee para cada peça
         for peca in lista_pecas:
             # SHOPEE START: Estratégia de busca melhorada
             logger.info(f"🔍 Buscando peça: '{peca}'")
@@ -564,10 +650,27 @@ async def buscar_precos_pecas(
                 # Extrair apenas o nome básico do modelo (ex: "ARGO" em vez de "ARGO 1.0 6V Flex")
                 modelo_basico = modelo_nome.split()[0]  # Pega apenas a primeira palavra
                 
-                keywords_tentativas = [
-                    f"{peca} {modelo_basico} {ano.split('-')[0]}",  # Peça + modelo básico + ano (ex: "kit disco pastilha ARGO 2022")
-                    f"{peca} {modelo_basico}",  # Peça + modelo básico (ex: "kit disco pastilha ARGO")
-                ]
+                base_ano = ano.split('-')[0]
+                # Fallbacks leves: remover prefixo kit e normalizar plural -> singular
+                peca_sem_kit = _remove_kit_prefix(peca)
+                peca_singular = _to_singular_words(peca_sem_kit)
+
+                # Construir tentativas mantendo ordem curta (ano primeiro)
+                keywords_tentativas = []
+                # 1) termo original
+                keywords_tentativas.append(f"{peca} {modelo_basico} {base_ano}")
+                keywords_tentativas.append(f"{peca} {modelo_basico}")
+                # 2) sem kit
+                if peca_sem_kit != peca:
+                    keywords_tentativas.append(f"{peca_sem_kit} {modelo_basico} {base_ano}")
+                    keywords_tentativas.append(f"{peca_sem_kit} {modelo_basico}")
+                # 3) singular simples
+                if peca_singular not in {peca, peca_sem_kit}:
+                    keywords_tentativas.append(f"{peca_singular} {modelo_basico} {base_ano}")
+                    keywords_tentativas.append(f"{peca_singular} {modelo_basico}")
+
+                # Limitar tentativas para não alongar consulta
+                keywords_tentativas = keywords_tentativas[:6]
             
             logger.info(f"📝 Keywords que serão testadas: {keywords_tentativas}")
             
@@ -725,21 +828,21 @@ async def salvar_lead(request: Request):
             logger.info(f"✅ Lead {lead_id} atualizado com dados pessoais")
         else:
             # Criar novo lead completo (fallback)
-            linha = {
-                "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "nome": lead_data.get("nome", ""),
-                "email": lead_data.get("email", ""),
-                "whatsapp": lead_data.get("whatsapp", ""),
-                "objetivo": lead_data.get("objetivo", ""),
-                "placa": lead_data.get("placa", ""),
-                "marca": lead_data.get("marca", ""),
-                "modelo": lead_data.get("modelo", ""),
-                "ano": lead_data.get("ano", ""),
-                "pecas": lead_data.get("pecas", ""),
-                "estado": lead_data.get("estado", ""),
-                "cidade": lead_data.get("cidade", "")
-            }
-            salvar_lead_db(linha)
+        linha = {
+            "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "nome": lead_data.get("nome", ""),
+            "email": lead_data.get("email", ""),
+            "whatsapp": lead_data.get("whatsapp", ""),
+            "objetivo": lead_data.get("objetivo", ""),
+            "placa": lead_data.get("placa", ""),
+            "marca": lead_data.get("marca", ""),
+            "modelo": lead_data.get("modelo", ""),
+            "ano": lead_data.get("ano", ""),
+            "pecas": lead_data.get("pecas", ""),
+            "estado": lead_data.get("estado", ""),
+            "cidade": lead_data.get("cidade", "")
+        }
+        salvar_lead_db(linha)
             logger.info(f"✅ Novo lead criado: {linha}")
             
         return {"status": "ok", "arquivo": str(LEADS_CAMINHO)}
