@@ -828,21 +828,21 @@ async def salvar_lead(request: Request):
             logger.info(f"✅ Lead {lead_id} atualizado com dados pessoais")
         else:
             # Criar novo lead completo (fallback)
-        linha = {
-            "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "nome": lead_data.get("nome", ""),
-            "email": lead_data.get("email", ""),
-            "whatsapp": lead_data.get("whatsapp", ""),
-            "objetivo": lead_data.get("objetivo", ""),
-            "placa": lead_data.get("placa", ""),
-            "marca": lead_data.get("marca", ""),
-            "modelo": lead_data.get("modelo", ""),
-            "ano": lead_data.get("ano", ""),
-            "pecas": lead_data.get("pecas", ""),
-            "estado": lead_data.get("estado", ""),
-            "cidade": lead_data.get("cidade", "")
-        }
-        salvar_lead_db(linha)
+            linha = {
+                "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "nome": lead_data.get("nome", ""),
+                "email": lead_data.get("email", ""),
+                "whatsapp": lead_data.get("whatsapp", ""),
+                "objetivo": lead_data.get("objetivo", ""),
+                "placa": lead_data.get("placa", ""),
+                "marca": lead_data.get("marca", ""),
+                "modelo": lead_data.get("modelo", ""),
+                "ano": lead_data.get("ano", ""),
+                "pecas": lead_data.get("pecas", ""),
+                "estado": lead_data.get("estado", ""),
+                "cidade": lead_data.get("cidade", "")
+            }
+            salvar_lead_db(linha)
             logger.info(f"✅ Novo lead criado: {linha}")
             
         return {"status": "ok", "arquivo": str(LEADS_CAMINHO)}
